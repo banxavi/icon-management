@@ -23,6 +23,18 @@ export type ProjectOption = {
   name: string
 }
 
+export type WeeklyReportRecord = {
+  id: string
+  userId: string
+  weekStart: string
+  highlights: string
+  progress: string
+  risks: string
+  nextWeek: string
+  status: ReportStatus
+  submittedAt: string | null
+}
+
 export type DailyReportRecord = {
   id: string
   userId: string

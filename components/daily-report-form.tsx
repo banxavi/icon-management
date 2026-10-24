@@ -18,9 +18,10 @@ type Props = {
   minDate: string
   maxDate: string
   initialReport: DailyReportRecord | null
+  timeZone?: string
 }
 
-export function DailyReportForm({ projects, initialDate, minDate, maxDate, initialReport }: Props) {
+export function DailyReportForm({ projects, initialDate, minDate, maxDate, initialReport, timeZone = 'Asia/Saigon' }: Props) {
   const [reportDate, setReportDate] = useState(initialDate)
   const [projectId, setProjectId] = useState(initialReport?.projectId || projects[0]?.id || '')
   const [workStatus, setWorkStatus] = useState<'office' | 'wfh'>(initialReport?.workStatus || 'office')
@@ -99,7 +100,7 @@ export function DailyReportForm({ projects, initialDate, minDate, maxDate, initi
       <CardContent className="flex flex-col gap-6">
         <div className="flex items-start gap-2 rounded-xl bg-orange-50 p-3 text-sm text-orange-800">
           <Info className="mt-0.5 size-4 shrink-0" />
-          <span>You can submit or edit until the end of the next calendar day (Asia/Saigon). After that, changes are rejected.</span>
+          <span>You can submit or edit until the end of the next calendar day ({timeZone}). After that, changes are rejected. There is no admin override.</span>
         </div>
         {status === 'submitted' && submittedAt && (
           <p className="text-sm text-emerald-700">Submitted · {new Date(submittedAt).toLocaleString('en-US', { timeZone: 'Asia/Saigon' })}</p>

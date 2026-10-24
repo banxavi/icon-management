@@ -18,4 +18,16 @@ describe('daily report window (Asia/Saigon)', () => {
     const bounds = openReportDateBounds(new Date('2026-10-24T03:00:00Z'))
     expect(bounds).toEqual({ min: '2026-10-23', max: '2026-10-24' })
   })
+
+  it('stays open on the report date and through the whole next calendar day', () => {
+    const now = new Date('2026-10-24T03:00:00Z')
+    expect(isReportWindowOpen('2026-10-24', now)).toBe(true)
+    expect(isReportWindowOpen('2026-10-23', now)).toBe(true)
+    expect(isReportWindowOpen('2026-10-22', now)).toBe(false)
+  })
+
+  it('rejects a date that is not a real calendar day', () => {
+    expect(isReportWindowOpen('2026-02-31', new Date('2026-03-01T03:00:00Z'))).toBe(false)
+    expect(isReportWindowOpen('not-a-date', new Date('2026-10-24T03:00:00Z'))).toBe(false)
+  })
 })

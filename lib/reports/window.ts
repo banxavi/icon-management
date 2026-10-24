@@ -42,10 +42,17 @@ export function shiftCalendarDate(isoDate: string, days: number): string {
   return shifted.toISOString().slice(0, 10)
 }
 
+export function isRealCalendarDate(isoDate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return false
+  const [year, month, day] = isoDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
 /** True through 23:59:59 on reportDate+1 in the org timezone. False from 00:00:00 on reportDate+2. */
 export function isReportWindowOpen(reportDate: string, now: Date, timeZone = REPORT_TIMEZONE): boolean {
+  if (!isRealCalendarDate(reportDate)) return false
   const [year, month, day] = reportDate.split('-').map(Number)
-  if (!year || !month || !day) return false
   const local = zonedParts(now, timeZone)
   const nowEncoded = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second)
   const closeEncoded = Date.UTC(year, month - 1, day + 2, 0, 0, 0)

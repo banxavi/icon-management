@@ -46,7 +46,7 @@ async function applyMembership(admin: NonNullable<ReturnType<typeof createAdminC
   const { data: project, error: projectError } = await admin.from('projects').select('id').eq('name', projectName).maybeSingle()
   if (projectError || !project) return `Project "${projectName}" was not found.`
 
-  await admin.from('profiles').update({ team_id: TEAM_ID, status: 'active' }).eq('id', userId)
+  await admin.from('profiles').update({ team_id: TEAM_ID }).eq('id', userId)
   await admin.from('user_roles').delete().eq('user_id', userId)
   const { error: roleInsertError } = await admin.from('user_roles').insert({ user_id: userId, role_id: roleRow.id })
   if (roleInsertError) return roleInsertError.message
@@ -107,9 +107,18 @@ export async function importMembers(_prev: AdminResult | null, formData: FormDat
       full_name: row.fullName,
       email: row.email,
       team_id: TEAM_ID,
+      status: 'active',
     }).eq('id', userId)
     if (profileError) {
       errors.push(`Row ${row.line}: ${profileError.message}`)
+      continue
+    }
+    const { error: accessError } = await admin.auth.admin.updateUserById(userId, {
+      ban_duration: 'none',
+      user_metadata: { full_name: row.fullName },
+    })
+    if (accessError) {
+      errors.push(`Row ${row.line}: ${accessError.message}`)
       continue
     }
     const membershipError = await applyMembership(admin, userId, row.role, row.project)
@@ -182,6 +191,8 @@ export async function updateOrgSettings(formData: FormData): Promise<AdminResult
     dailyWindow: String(formData.get('dailyWindow') || ''),
     maxUploadMb: String(formData.get('maxUploadMb') || ''),
     extensions: formData.getAll('extensions').map(String),
+    weeklyDeadlineWeekday: String(formData.get('weeklyDeadlineWeekday') || ''),
+    weeklyDeadlineTime: String(formData.get('weeklyDeadlineTime') || ''),
   })
   if (!parsed.ok) return parsed
   const supabase = await createClient()
@@ -194,6 +205,8 @@ export async function updateOrgSettings(formData: FormData): Promise<AdminResult
     daily_window: parsed.value.dailyWindow,
     max_upload_mb: parsed.value.maxUploadMb,
     allowed_extensions: parsed.value.allowedExtensions,
+    weekly_deadline_weekday: parsed.value.weeklyDeadlineWeekday,
+    weekly_deadline_time: parsed.value.weeklyDeadlineTime,
     updated_at: new Date().toISOString(),
   }).eq('id', current.id)
   if (error) return { ok: false, errors: [error.message] }
@@ -209,6 +222,8 @@ export async function updateOrgSettings(formData: FormData): Promise<AdminResult
   }
   revalidatePath('/admin')
   revalidatePath('/documents')
+  revalidatePath('/reports/weekly')
+  revalidatePath('/reports/weekly/new')
   return { ok: true, message: messages.settingsSaved }
 }
 

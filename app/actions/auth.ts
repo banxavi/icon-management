@@ -11,24 +11,28 @@ import { createClient, endSupabaseSession } from '@/lib/supabase/server'
 
 export type AuthResult = { error?: string; message?: string }
 
-async function readLock(email: string): Promise<LockState | null> {
+type LockRead = { ok: true; state: LockState | null } | { ok: false }
+
+async function readLock(email: string): Promise<LockRead> {
   const admin = createAdminClient()
-  if (!admin) return null
-  const { data } = await admin.from('login_attempts').select('failed_count, locked_until').eq('email', email).maybeSingle()
-  if (!data) return null
-  return { failedCount: data.failed_count ?? 0, lockedUntil: data.locked_until }
+  if (!admin) return { ok: true, state: null }
+  const { data, error } = await admin.from('login_attempts').select('failed_count, locked_until').eq('email', email).maybeSingle()
+  if (error) return { ok: false }
+  if (!data) return { ok: true, state: null }
+  return { ok: true, state: { failedCount: data.failed_count ?? 0, lockedUntil: data.locked_until } }
 }
 
-async function writeLock(email: string, state: LockState, ip: string | null) {
+async function writeLock(email: string, state: LockState, ip: string | null): Promise<'saved' | 'skipped' | 'failed'> {
   const admin = createAdminClient()
-  if (!admin) return
-  await admin.from('login_attempts').upsert({
+  if (!admin) return 'skipped'
+  const { error } = await admin.from('login_attempts').upsert({
     email,
     ip,
     failed_count: state.failedCount,
     locked_until: state.lockedUntil,
     updated_at: new Date().toISOString(),
   })
+  return error ? 'failed' : 'saved'
 }
 
 async function audit(action: string, metadata: Record<string, unknown>, actorId?: string | null) {
@@ -55,7 +59,8 @@ export async function signIn(_prev: AuthResult, formData: FormData): Promise<Aut
   const ip = await clientIp()
   const now = new Date()
   const existing = await readLock(email)
-  if (isLocked(existing, now)) {
+  if (!existing.ok) return { error: messages.signInUnavailable }
+  if (isLocked(existing.state, now)) {
     return { error: messages.locked }
   }
 
@@ -69,8 +74,9 @@ export async function signIn(_prev: AuthResult, formData: FormData): Promise<Aut
       await audit('login_denied', { email, ip, reason: 'deactivated' })
       return { error: messages.deactivated }
     }
-    const next = recordFailure(existing, now)
-    await writeLock(email, next, ip)
+    const next = recordFailure(existing.state, now)
+    const saved = await writeLock(email, next, ip)
+    if (saved === 'failed') return { error: messages.signInUnavailable }
     await audit(isLocked(next, now) ? 'login_locked' : 'login_failed', { email, ip })
     return { error: isLocked(next, now) ? messages.locked : messages.invalidCredentials }
   }
@@ -97,6 +103,7 @@ export async function signOut() {
 export async function requestPasswordReset(_prev: AuthResult, formData: FormData): Promise<AuthResult> {
   const email = String(formData.get('email') || '').trim().toLowerCase()
   if (!email) return { error: 'Enter the email address for your account.' }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Enter a valid email address.' }
   const supabase = await createClient()
   if (!supabase) return { error: messages.signInUnavailable }
   const { error } = await supabase.auth.resetPasswordForEmail(email, {

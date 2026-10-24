@@ -1,6 +1,6 @@
 # ICON Team 1 Portal
 
-English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, WFH declarations, in-app notifications, the team leader dashboard, the member directory, organization settings, and the document library use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
+English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, weekly reports, WFH declarations, in-app notifications, the team leader dashboard, the member directory, organization settings, and the document library use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
 
 Environment setup, including the dev project `egylwfpxaxqqlmselygj`, is in [DEPLOY.md](DEPLOY.md). Copy `.env.example` to `.env.local` and fill keys from the dashboard. Never commit secrets.
 

@@ -30,3 +30,18 @@ export function recordFailure(state: LockState | null, now: Date): LockState {
 export function clearLock(): LockState {
   return { failedCount: 0, lockedUntil: null }
 }
+
+/** True when the last recorded activity is at least 8 hours before now. */
+export function isIdle(lastActivityAt: string | null | undefined, now: Date): boolean {
+  if (!lastActivityAt) return false
+  const then = new Date(lastActivityAt).getTime()
+  if (Number.isNaN(then)) return false
+  return now.getTime() - then > IDLE_MS
+}
+
+export function shouldTouchActivity(lastActivityAt: string | null | undefined, now: Date): boolean {
+  if (!lastActivityAt) return true
+  const then = new Date(lastActivityAt).getTime()
+  if (Number.isNaN(then)) return true
+  return now.getTime() - then > ACTIVITY_TOUCH_MS
+}

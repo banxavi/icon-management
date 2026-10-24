@@ -139,7 +139,7 @@ export async function loadNotifications(session: SessionUser): Promise<Notice[]>
   return (data ?? []).map(mapNotice)
 }
 
-export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: string[]; settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[] } }> {
+export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: string[]; settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[]; weeklyDeadlineWeekday: number; weeklyDeadlineTime: string } }> {
   const supabase = await createClient()
   const empty = {
     users: [] as AdminUser[],
@@ -150,6 +150,8 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
       dailyWindow: 'end_of_next_calendar_day',
       maxUploadMb: 50,
       allowedExtensions: ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
+      weeklyDeadlineWeekday: 5,
+      weeklyDeadlineTime: '17:00',
     },
   }
   if (!supabase) return empty
@@ -159,7 +161,7 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
     supabase.from('project_members').select('user_id, projects(name)'),
     supabase.from('reviewer_assignments').select('reviewer_id, member_id'),
     supabase.from('projects').select('name').order('name'),
-    supabase.from('org_settings').select('timezone, retention_months, daily_window, max_upload_mb, allowed_extensions').limit(1).maybeSingle(),
+    supabase.from('org_settings').select('timezone, retention_months, daily_window, max_upload_mb, allowed_extensions, weekly_deadline_weekday, weekly_deadline_time').limit(1).maybeSingle(),
   ])
   const roleByUser = new Map<string, AppRole>()
   for (const row of roleRows ?? []) {
@@ -195,6 +197,8 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
       allowedExtensions: Array.isArray(settings?.allowed_extensions) && settings.allowed_extensions.length > 0
         ? settings.allowed_extensions.map(String)
         : ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
+      weeklyDeadlineWeekday: Number.isInteger(Number(settings?.weekly_deadline_weekday)) ? Number(settings?.weekly_deadline_weekday) : 5,
+      weeklyDeadlineTime: typeof settings?.weekly_deadline_time === 'string' && settings.weekly_deadline_time ? settings.weekly_deadline_time : '17:00',
     },
   }
 }

@@ -19,7 +19,7 @@ import type { SessionUser } from '@/lib/types'
 const items = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, allow: () => true },
   { href: '/reports/daily/new', label: 'Daily report', icon: ClipboardCheck, allow: (session: SessionUser) => canSubmitReport(session.roles) },
-  { href: '/reports/weekly/new', label: 'Weekly report', icon: FileClock, allow: (session: SessionUser) => canSubmitReport(session.roles) },
+  { href: '/reports/weekly', label: 'Weekly report', icon: FileClock, allow: (session: SessionUser) => canSubmitReport(session.roles) },
   { href: '/reports/history', label: 'Report history', icon: FileClock, allow: () => true },
   { href: '/team/directory', label: 'Directory', icon: Users, allow: () => true },
   { href: '/team/dashboard', label: 'Team dashboard', icon: LayoutDashboard, allow: (session: SessionUser) => canViewTeamDashboard(session.roles) },
@@ -66,7 +66,7 @@ export function PortalShell({
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-5">
           {items.filter((item) => item.allow(session)).map((item) => {
             const Icon = item.icon
-            const active = pathname === item.href
+            const active = pathname === item.href || (item.href === '/reports/weekly' && pathname.startsWith('/reports/weekly/'))
             return (
               <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm leading-5 transition ${active ? 'bg-white font-semibold text-[#0b5fa8] shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                 <Icon className="size-4 shrink-0" />

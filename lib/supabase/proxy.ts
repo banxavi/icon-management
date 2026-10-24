@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { alternateExpiredAuthCookies, clearedAuthCookieOptions, isVerifiedSignedOut, supabaseSessionCookieNames } from '@/lib/auth/cookies'
-import { shouldRedirectToLogin } from '@/lib/auth/paths'
+import { shouldRedirectToLogin, skipsSessionRefresh } from '@/lib/auth/paths'
 import { publicSupabaseEnv } from '@/lib/supabase/env'
 
 const CACHE_HEADERS = ['cache-control', 'expires', 'pragma'] as const
@@ -43,7 +43,7 @@ export async function updateSession(request: NextRequest) {
 
   // Sign-out owns the response cookies. Refreshing the session here would
   // write a new auth cookie onto the same response and undo the logout.
-  if (pathname === '/auth/signout') {
+  if (skipsSessionRefresh(pathname)) {
     return NextResponse.next({ request })
   }
 

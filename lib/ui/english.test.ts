@@ -8,6 +8,8 @@ const files = [
   'app/login/forgot/page.tsx',
   'app/login/update-password/page.tsx',
   'components/daily-report-form.tsx',
+  'components/weekly-report-form.tsx',
+  'app/(portal)/reports/weekly/page.tsx',
   'components/team-dashboard.tsx',
   'components/portal-shell.tsx',
   'components/dashboard-home.tsx',

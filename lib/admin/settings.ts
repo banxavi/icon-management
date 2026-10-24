@@ -9,6 +9,8 @@ export type OrgSettingsInput = {
   dailyWindow: string
   maxUploadMb: number
   allowedExtensions: string[]
+  weeklyDeadlineWeekday: number
+  weeklyDeadlineTime: string
 }
 
 export function isSupportedTimeZone(value: string): boolean {
@@ -28,6 +30,8 @@ export function parseOrgSettings(input: {
   dailyWindow: string
   maxUploadMb: string
   extensions: string[]
+  weeklyDeadlineWeekday: string
+  weeklyDeadlineTime: string
 }): { ok: true; value: OrgSettingsInput } | { ok: false; errors: string[] } {
   const errors: string[] = []
   const timezone = input.timezone.trim()
@@ -49,6 +53,14 @@ export function parseOrgSettings(input: {
   if (allowedExtensions.length === 0 || allowedExtensions.some((item) => !SETTINGS_EXTENSIONS.includes(item as (typeof SETTINGS_EXTENSIONS)[number]))) {
     errors.push('Choose at least one allowed type: pdf, docx, xlsx, pptx, md, png, jpg.')
   }
+  const weeklyDeadlineWeekday = Number(input.weeklyDeadlineWeekday)
+  if (!Number.isInteger(weeklyDeadlineWeekday) || weeklyDeadlineWeekday < 0 || weeklyDeadlineWeekday > 6) {
+    errors.push('Choose the weekly report deadline day. Friday is the default.')
+  }
+  const weeklyDeadlineTime = input.weeklyDeadlineTime.trim()
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(weeklyDeadlineTime)) {
+    errors.push('Enter the weekly deadline as 24-hour HH:MM. The default is 17:00.')
+  }
   if (errors.length > 0) return { ok: false, errors }
   return {
     ok: true,
@@ -58,6 +70,8 @@ export function parseOrgSettings(input: {
       dailyWindow: DAILY_WINDOW_VALUE,
       maxUploadMb,
       allowedExtensions,
+      weeklyDeadlineWeekday,
+      weeklyDeadlineTime,
     },
   }
 }

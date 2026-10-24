@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldRedirectToLogin } from '@/lib/auth/paths'
+import { shouldRedirectToLogin, skipsSessionRefresh } from '@/lib/auth/paths'
 
 describe('unauthenticated route guard', () => {
   it('redirects portal routes, including /dashboard, when there is no session', () => {
@@ -22,5 +22,12 @@ describe('unauthenticated route guard', () => {
 
   it('does not redirect an authenticated visit to the dashboard', () => {
     expect(shouldRedirectToLogin('/dashboard', true)).toBe(false)
+  })
+
+  it('leaves sign-out and idle expiry to clear cookies themselves', () => {
+    expect(skipsSessionRefresh('/auth/signout')).toBe(true)
+    expect(skipsSessionRefresh('/auth/session-ended')).toBe(true)
+    expect(skipsSessionRefresh('/dashboard')).toBe(false)
+    expect(shouldRedirectToLogin('/reports/weekly', false)).toBe(true)
   })
 })

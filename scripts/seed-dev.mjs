@@ -141,4 +141,17 @@ if (grantError) {
   throw new Error(`Folder grants: ${grantError.message}. Apply supabase/migrations/20261024203000_documents_and_settings.sql first.`)
 }
 
-console.log('Dev seed complete: 17 members, 1 team, 3 projects, document folder grants.')
+const SETTINGS_ID = '40000000-0000-4000-8000-000000000001'
+const { data: weeklySettings, error: weeklySettingsError } = await admin
+  .from('org_settings')
+  .update({ weekly_deadline_weekday: 5, weekly_deadline_time: '17:00' })
+  .eq('id', SETTINGS_ID)
+  .select('id')
+if (weeklySettingsError) {
+  throw new Error(`Weekly deadline: ${weeklySettingsError.message}. Apply supabase/migrations/20261024233000_weekly_reports_deadline.sql first.`)
+}
+if (!weeklySettings?.length) {
+  throw new Error('org_settings row is missing. Apply the migrations before seeding.')
+}
+
+console.log('Dev seed complete: 17 members, 1 team, 3 projects, document folder grants, weekly deadline Friday 17:00.')

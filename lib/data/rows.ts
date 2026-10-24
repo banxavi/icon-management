@@ -1,4 +1,4 @@
-import type { AppRole, DailyReportRecord, WorkStatus } from '@/lib/types'
+import type { AppRole, DailyReportRecord, WeeklyReportRecord, WorkStatus } from '@/lib/types'
 
 export function relatedName(value: unknown): string {
   if (!value) return ''
@@ -35,5 +35,19 @@ export function mapReport(row: Record<string, unknown>): DailyReportRecord {
     submittedAt: typeof row.submitted_at === 'string' ? row.submitted_at : null,
     isLate: Boolean(row.is_late),
     edited: Boolean(row.edited_after_submit),
+  }
+}
+
+export function mapWeeklyReport(row: Record<string, unknown>): WeeklyReportRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    weekStart: String(row.week_start).slice(0, 10),
+    highlights: typeof row.highlights === 'string' ? row.highlights : '',
+    progress: typeof row.progress === 'string' ? row.progress : '',
+    risks: typeof row.risks === 'string' ? row.risks : '',
+    nextWeek: typeof row.next_week_plan === 'string' ? row.next_week_plan : '',
+    status: row.status === 'submitted' ? 'submitted' : 'draft',
+    submittedAt: typeof row.submitted_at === 'string' ? row.submitted_at : null,
   }
 }

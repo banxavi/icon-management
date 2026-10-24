@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { SETTINGS_EXTENSIONS } from '@/lib/admin/settings'
+import { WEEKDAY_NAMES } from '@/lib/reports/weekly'
 import { roleLabel } from '@/lib/auth/permissions'
 import type { AppRole } from '@/lib/types'
 
@@ -28,7 +29,7 @@ export function AdminPanel({
 }: {
   users: AdminUser[]
   projects: string[]
-  settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[] }
+  settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[]; weeklyDeadlineWeekday: number; weeklyDeadlineTime: string }
 }) {
   const [tab, setTab] = useState<'users' | 'settings'>('users')
   const [message, setMessage] = useState('')
@@ -74,7 +75,17 @@ export function AdminPanel({
                 <input type="hidden" name="dailyWindow" value="end_of_next_calendar_day" />
                 <Input readOnly value="End of the next calendar day (23:59:59 Asia/Saigon)" className="mt-1" />
               </label>
-              <p className="text-slate-500">Members can submit or edit until that instant. Later writes are rejected. There is no approval step.</p>
+              <p className="text-slate-500">Members can submit or edit until that instant. Later writes are rejected. There is no approval step and no admin override.</p>
+              <fieldset>
+                <legend>Weekly report deadline</legend>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <select name="weeklyDeadlineWeekday" defaultValue={String(settings.weeklyDeadlineWeekday)} className="h-9 rounded-lg border px-2" aria-label="Weekly deadline day">
+                    {WEEKDAY_NAMES.map((day, index) => <option key={day} value={index}>{day}</option>)}
+                  </select>
+                  <Input name="weeklyDeadlineTime" defaultValue={settings.weeklyDeadlineTime} className="w-28" aria-label="Weekly deadline time" />
+                </div>
+              </fieldset>
+              <p className="text-slate-500">Default is Friday 17:00 in the time zone above. Each member still has one weekly report per week.</p>
               <label>Upload limit (MB)
                 <Input name="maxUploadMb" type="number" min={1} max={50} defaultValue={settings.maxUploadMb} className="mt-1" />
               </label>
@@ -145,7 +156,17 @@ export function AdminPanel({
                     </div>
                   </div>
                 </form>
-                <form action={async (formData) => show(await setAccountActive(formData))} className="px-4 pb-4">
+                <form
+                  action={async (formData) => show(await setAccountActive(formData))}
+                  className="px-4 pb-4"
+                  onSubmit={(event) => {
+                    const activating = user.status !== 'active'
+                    const prompt = activating
+                      ? `Reactivate ${user.fullName}? They will be able to sign in again.`
+                      : `Deactivate ${user.fullName}? They cannot sign in. Historical reports stay on the account.`
+                    if (!window.confirm(prompt)) event.preventDefault()
+                  }}
+                >
                   <input type="hidden" name="userId" value={user.id} />
                   <input type="hidden" name="active" value={user.status === 'active' ? 'false' : 'true'} />
                   <Button type="submit" variant="outline">{user.status === 'active' ? 'Deactivate' : 'Reactivate'}</Button>

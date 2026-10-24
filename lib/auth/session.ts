@@ -1,7 +1,7 @@
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
-import { ACTIVITY_TOUCH_MS, IDLE_MS } from '@/lib/auth/lockout'
-import { createClient, endSupabaseSession } from '@/lib/supabase/server'
+import { isIdle, shouldTouchActivity } from '@/lib/auth/lockout'
+import { createClient } from '@/lib/supabase/server'
 import type { AppRole, SessionUser } from '@/lib/types'
 
 const ROLE_CODES = new Set<AppRole>(['member', 'team_leader', 'reviewer', 'admin', 'document_owner'])
@@ -47,20 +47,12 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 export async function requireSession(): Promise<SessionUser> {
   const session = await getSessionUser()
   if (!session) redirect('/login')
+  if (session.status !== 'active') redirect('/auth/session-ended?error=deactivated')
+  const now = new Date()
+  if (isIdle(session.lastActivityAt, now)) redirect('/auth/session-ended?error=idle')
   const supabase = await createClient()
-  if (session.status !== 'active') {
-    await endSupabaseSession()
-    redirect('/login?error=deactivated')
-  }
-  if (session.lastActivityAt && Date.now() - new Date(session.lastActivityAt).getTime() > IDLE_MS) {
-    await endSupabaseSession()
-    redirect('/login?error=idle')
-  }
-  if (
-    supabase &&
-    (!session.lastActivityAt || Date.now() - new Date(session.lastActivityAt).getTime() > ACTIVITY_TOUCH_MS)
-  ) {
-    await supabase.from('profiles').update({ last_activity_at: new Date().toISOString() }).eq('id', session.id)
+  if (supabase && shouldTouchActivity(session.lastActivityAt, now)) {
+    await supabase.from('profiles').update({ last_activity_at: now.toISOString() }).eq('id', session.id)
   }
   return session
 }
