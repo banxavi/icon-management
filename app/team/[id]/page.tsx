@@ -1,0 +1,9 @@
+'use client'
+import { useParams } from 'next/navigation'
+import { members, skills } from '@/lib/mock-data'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+export default function MemberProfilePage() { const { id } = useParams<{id:string}>(); const member = members.find(m => m.id === id) || members[0]; return <div className="max-w-3xl"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b86f3c]">Team profile</p><div className="mt-3 flex items-center gap-4"><Avatar className="size-14 bg-[#dce6f1]"><AvatarFallback className="bg-[#dce6f1] text-[#1b2a41]">{member.initials}</AvatarFallback></Avatar><div><h1 className="text-3xl font-semibold text-[#1b2a41]">{member.name}</h1><p className="text-sm text-slate-500">{member.role} · {member.id}</p></div></div><Card className="mt-8"><CardHeader><CardTitle>Thông tin cá nhân</CardTitle></CardHeader><CardContent className="grid gap-5 sm:grid-cols-2"><label className="text-sm font-medium">Tên hiển thị<Input className="mt-2" defaultValue={member.name}/></label><label className="text-sm font-medium">Email<Input className="mt-2" defaultValue={`${member.id}@icon.team`} disabled/></label><label className="text-sm font-medium sm:col-span-2">Giới thiệu<Input className="mt-2" defaultValue="Xây dựng sản phẩm nội bộ và tối ưu trải nghiệm team."/></label><div className="sm:col-span-2"><p className="text-sm font-medium">Kỹ năng</p><div className="mt-2 flex flex-wrap gap-2">{skills.map(s => <Badge key={s} variant="secondary">{s}</Badge>)}</div></div><Button className="w-fit bg-[#1b2a41]">Lưu thay đổi</Button></CardContent></Card></div> }
