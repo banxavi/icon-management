@@ -1,5 +1,6 @@
 import { roleLabel } from '@/lib/auth/permissions'
 import { asRole, asStringArray, mapReport, relatedName } from '@/lib/data/rows'
+import { notificationHistoryStart } from '@/lib/notifications/history'
 import { calendarDateInZone, weekdaysOfWeek } from '@/lib/reports/window'
 import { createClient } from '@/lib/supabase/server'
 import type { AppRole, SessionUser } from '@/lib/types'
@@ -11,15 +12,17 @@ import type { TeamRow } from '@/components/team-dashboard'
 
 const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'Asia/Saigon' })
 
-export async function loadShell(session: SessionUser): Promise<{ unreadCount: number; weekSubmitted: number }> {
+export async function loadShell(session: SessionUser): Promise<{ unreadCount: number; weekSubmitted: number; notices: Notice[] }> {
   const supabase = await createClient()
-  if (!supabase) return { unreadCount: 0, weekSubmitted: 0 }
   const days = weekdaysOfWeek(new Date())
-  const [{ count: unread }, { count: submitted }] = await Promise.all([
-    supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('recipient_id', session.id).is('read_at', null),
+  if (!supabase) return { unreadCount: 0, weekSubmitted: 0, notices: [] }
+  const since = notificationHistoryStart(new Date()).toISOString()
+  const [{ count: unread }, { count: submitted }, { data: noticeRows }] = await Promise.all([
+    supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('recipient_id', session.id).is('read_at', null).gte('created_at', since),
     supabase.from('daily_reports').select('id', { count: 'exact', head: true }).eq('user_id', session.id).eq('status', 'submitted').in('report_date', days),
+    supabase.from('notifications').select('id, title, body, read_at, created_at').eq('recipient_id', session.id).gte('created_at', since).order('created_at', { ascending: false }).limit(8),
   ])
-  return { unreadCount: unread ?? 0, weekSubmitted: submitted ?? 0 }
+  return { unreadCount: unread ?? 0, weekSubmitted: submitted ?? 0, notices: (noticeRows ?? []).map(mapNotice) }
 }
 
 export async function loadHome(session: SessionUser) {
@@ -118,22 +121,37 @@ function relatedCode(row: unknown): unknown {
   return Array.isArray(roles) ? roles[0]?.code : roles?.code
 }
 
-export async function loadNotifications(session: SessionUser): Promise<Notice[]> {
-  const supabase = await createClient()
-  if (!supabase) return []
-  const { data } = await supabase.from('notifications').select('id, title, body, read_at, created_at').eq('recipient_id', session.id).order('created_at', { ascending: false }).limit(50)
-  return (data ?? []).map((row) => ({
+function mapNotice(row: { id: unknown; title: unknown; body: unknown; read_at: unknown; created_at: unknown }): Notice {
+  return {
     id: String(row.id),
     title: String(row.title),
     body: String(row.body),
     createdAt: String(row.created_at),
     unread: !row.read_at,
-  }))
+  }
 }
 
-export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: string[]; settings: { timezone: string; retentionMonths: number; dailyWindow: string } }> {
+export async function loadNotifications(session: SessionUser): Promise<Notice[]> {
   const supabase = await createClient()
-  const empty = { users: [], projects: [], settings: { timezone: 'Asia/Saigon', retentionMonths: 12, dailyWindow: 'end_of_next_calendar_day' } }
+  if (!supabase) return []
+  const since = notificationHistoryStart(new Date()).toISOString()
+  const { data } = await supabase.from('notifications').select('id, title, body, read_at, created_at').eq('recipient_id', session.id).gte('created_at', since).order('created_at', { ascending: false }).limit(100)
+  return (data ?? []).map(mapNotice)
+}
+
+export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: string[]; settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[] } }> {
+  const supabase = await createClient()
+  const empty = {
+    users: [] as AdminUser[],
+    projects: [] as string[],
+    settings: {
+      timezone: 'Asia/Saigon',
+      retentionMonths: 12,
+      dailyWindow: 'end_of_next_calendar_day',
+      maxUploadMb: 50,
+      allowedExtensions: ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
+    },
+  }
   if (!supabase) return empty
   const [{ data: people }, { data: roleRows }, { data: memberships }, { data: assignments }, { data: projects }, { data: settings }] = await Promise.all([
     supabase.from('profiles').select('id, full_name, email, status').order('full_name'),
@@ -141,7 +159,7 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
     supabase.from('project_members').select('user_id, projects(name)'),
     supabase.from('reviewer_assignments').select('reviewer_id, member_id'),
     supabase.from('projects').select('name').order('name'),
-    supabase.from('org_settings').select('timezone, retention_months, daily_window').limit(1).maybeSingle(),
+    supabase.from('org_settings').select('timezone, retention_months, daily_window, max_upload_mb, allowed_extensions').limit(1).maybeSingle(),
   ])
   const roleByUser = new Map<string, AppRole>()
   for (const row of roleRows ?? []) {
@@ -173,6 +191,10 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
       timezone: settings?.timezone ? String(settings.timezone) : 'Asia/Saigon',
       retentionMonths: Number(settings?.retention_months ?? 12),
       dailyWindow: settings?.daily_window ? String(settings.daily_window) : 'end_of_next_calendar_day',
+      maxUploadMb: Number(settings?.max_upload_mb ?? 50),
+      allowedExtensions: Array.isArray(settings?.allowed_extensions) && settings.allowed_extensions.length > 0
+        ? settings.allowed_extensions.map(String)
+        : ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
     },
   }
 }

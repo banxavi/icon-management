@@ -12,6 +12,11 @@ const files = [
   'components/portal-shell.tsx',
   'components/dashboard-home.tsx',
   'components/admin-panel.tsx',
+  'components/documents-library.tsx',
+  'components/directory-panel.tsx',
+  'components/notification-center.tsx',
+  'components/notification-bell.tsx',
+  'components/profile-editor.tsx',
   'lib/messages.ts',
 ]
 

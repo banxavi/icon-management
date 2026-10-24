@@ -10,7 +10,7 @@ export default async function PortalLayout({ children }: { children: React.React
   const shell = await loadShell(session)
   return (
     <PortalProvider session={session}>
-      <PortalShell unreadCount={shell.unreadCount} weekSubmitted={shell.weekSubmitted}>
+      <PortalShell unreadCount={shell.unreadCount} weekSubmitted={shell.weekSubmitted} notices={shell.notices}>
         {children}
       </PortalShell>
     </PortalProvider>

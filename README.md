@@ -1,6 +1,6 @@
 # ICON Team 1 Portal
 
-English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, WFH declarations, in-app notifications, and the team leader dashboard use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
+English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, WFH declarations, in-app notifications, the team leader dashboard, the member directory, organization settings, and the document library use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
 
 Environment setup, including the dev project `egylwfpxaxqqlmselygj`, is in [DEPLOY.md](DEPLOY.md). Copy `.env.example` to `.env.local` and fill keys from the dashboard. Never commit secrets.
 
@@ -89,12 +89,12 @@ public/                            Icons and placeholder assets
 | `/team/dashboard` | `TeamDashboard` in `team-screens.tsx` | REP-05, WFH-02 |
 | `/team/reports/weekly` | `WeeklyTeamReport` in `team-screens.tsx` | REP-07 |
 | `/team/calendar` | `TeamCalendar` in `team-screens.tsx` | WFH-02 |
-| `/team/directory` | `DirectoryScreen` in `workspace-screens.tsx` | PRO-01 |
-| `/team/[id]` | `ProfileScreen` in `workspace-screens.tsx` | PRO-01 |
+| `/team/directory` | `DirectoryPanel` | PRO-01 |
+| `/team/[id]` | Member profile | PRO-01 |
 | `/requests` | `RequestsScreen` in `team-screens.tsx` | REQ-01, REQ-02 |
-| `/documents` | `DocumentsScreen` in `workspace-screens.tsx` | DOC-01, DOC-02, DOC-04 |
-| `/notifications` | `NotificationsScreen` in `workspace-screens.tsx` | NTF-01 |
-| `/admin` | `AdminScreen` in `workspace-screens.tsx` | AUTH-03, ADM-01 |
+| `/documents` | `DocumentsLibrary` | DOC-01, DOC-02 |
+| `/notifications` | `NotificationCenter` | NTF-01 |
+| `/admin` | `AdminPanel` | AUTH-03, ADM-01 |
 | `/announcements` | `AnnouncementsScreen` in `workspace-screens.tsx` | ENG-01 |
 
 ## Mock data files

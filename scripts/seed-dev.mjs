@@ -130,4 +130,15 @@ if (count !== 17) {
   console.error(`Expected 17 profiles on the team, found ${count}.`)
   process.exit(1)
 }
-console.log('Dev seed complete: 17 members, 1 team, 3 projects.')
+
+const folderGrants = [
+  { folder_id: '51000000-0000-4000-8000-000000000001', user_id: idByEmail.get('docs.owner@icon-dev.example'), access: 'manage' },
+  { folder_id: '51000000-0000-4000-8000-000000000002', user_id: idByEmail.get('docs.owner@icon-dev.example'), access: 'manage' },
+  { folder_id: '51000000-0000-4000-8000-000000000005', user_id: idByEmail.get('member05@icon-dev.example'), access: 'view' },
+]
+const { error: grantError } = await admin.from('document_folder_grants').upsert(folderGrants, { onConflict: 'folder_id,user_id,access' })
+if (grantError) {
+  throw new Error(`Folder grants: ${grantError.message}. Apply supabase/migrations/20261024203000_documents_and_settings.sql first.`)
+}
+
+console.log('Dev seed complete: 17 members, 1 team, 3 projects, document folder grants.')

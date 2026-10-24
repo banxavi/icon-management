@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { parseMemberCsv } from '@/lib/admin/csv'
+import { parseOrgSettings } from '@/lib/admin/settings'
+import { canEditProfileField } from '@/lib/auth/profile'
 import { clientIp } from '@/lib/auth/request'
 import { requireSession } from '@/lib/auth/session'
 import { TEAM_ID } from '@/lib/constants'
@@ -169,6 +171,72 @@ export async function setAccountActive(formData: FormData): Promise<AdminResult>
   })
   revalidatePath('/admin')
   return { ok: true, message: active ? messages.reactivatedOk : messages.deactivatedOk }
+}
+
+export async function updateOrgSettings(formData: FormData): Promise<AdminResult> {
+  const session = await requireAdmin()
+  if (!session) return { ok: false, errors: [messages.forbidden] }
+  const parsed = parseOrgSettings({
+    timezone: String(formData.get('timezone') || ''),
+    retentionMonths: String(formData.get('retentionMonths') || ''),
+    dailyWindow: String(formData.get('dailyWindow') || ''),
+    maxUploadMb: String(formData.get('maxUploadMb') || ''),
+    extensions: formData.getAll('extensions').map(String),
+  })
+  if (!parsed.ok) return parsed
+  const supabase = await createClient()
+  if (!supabase) return { ok: false, errors: [messages.saveFailed] }
+  const { data: current } = await supabase.from('org_settings').select('id').limit(1).maybeSingle()
+  if (!current) return { ok: false, errors: [messages.saveFailed] }
+  const { error } = await supabase.from('org_settings').update({
+    timezone: parsed.value.timezone,
+    retention_months: parsed.value.retentionMonths,
+    daily_window: parsed.value.dailyWindow,
+    max_upload_mb: parsed.value.maxUploadMb,
+    allowed_extensions: parsed.value.allowedExtensions,
+    updated_at: new Date().toISOString(),
+  }).eq('id', current.id)
+  if (error) return { ok: false, errors: [error.message] }
+  const admin = createAdminClient()
+  if (admin) {
+    await admin.from('audit_logs').insert({
+      actor_id: session.id,
+      action: 'org_settings_updated',
+      object_type: 'org_settings',
+      object_id: current.id,
+      metadata: parsed.value,
+    })
+  }
+  revalidatePath('/admin')
+  revalidatePath('/documents')
+  return { ok: true, message: messages.settingsSaved }
+}
+
+export async function updateMemberName(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
+  const session = await requireSession()
+  const userId = String(formData.get('userId') || '')
+  const fullName = String(formData.get('fullName') || '').trim()
+  if (fullName.length < 2 || fullName.length > 120) {
+    return { ok: false, errors: ['Enter a name between 2 and 120 characters.'] }
+  }
+  const supabase = await createClient()
+  if (!supabase) return { ok: false, errors: [messages.saveFailed] }
+  const { data: target } = await supabase.from('profiles').select('id, team_id').eq('id', userId).maybeSingle()
+  if (!target) return { ok: false, errors: [messages.forbidden] }
+  const allowed = canEditProfileField({
+    actorId: session.id,
+    actorRoles: session.roles,
+    targetId: userId,
+    field: 'fullName',
+    sameTeam: Boolean(session.teamId && target.team_id === session.teamId),
+  })
+  if (!allowed) return { ok: false, errors: ['Only an Admin or Team Leader can change another member name.'] }
+  const { data, error } = await supabase.from('profiles').update({ full_name: fullName }).eq('id', userId).select('full_name').maybeSingle()
+  if (error || !data) return { ok: false, errors: [error?.message || messages.saveFailed] }
+  if (data.full_name !== fullName) return { ok: false, errors: ['That name could not be changed.'] }
+  revalidatePath('/team/directory')
+  revalidatePath(`/team/${userId}`)
+  return { ok: true, message: messages.nameSaved }
 }
 
 export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {

@@ -54,13 +54,13 @@ Supabase Free has **no PITR** and no downloadable backups → we run our own log
 - Restore test: restore into a scratch project at least once before go-live, then quarterly.
 
 ## 6b. Schema seed (dev)
-Apply `supabase/migrations/20261024120000_init_core.sql` first (`supabase link --project-ref egylwfpxaxqqlmselygj && supabase db push`). Then, with the service role and a password only in your shell:
+Apply `supabase/migrations/20261024120000_init_core.sql` and `supabase/migrations/20261024203000_documents_and_settings.sql` (`supabase link --project-ref egylwfpxaxqqlmselygj && supabase db push`). The second migration adds folder ACL, document versions, org upload settings, and a private Storage bucket named `documents` (50 MB). Then, with the service role and a password only in your shell:
 
 ```bash
 SEED_DEV_PASSWORD='(operator supplied)' pnpm seed:dev
 ```
 
-That creates 17 fake members, sets the team leader, and assigns the reviewer to four members. Do not print or commit the password or service role key. Rollback SQL: `supabase/rollback/20261024120000_init_core.down.sql`.
+That creates 17 fake members, sets the team leader, assigns the reviewer to four members, and grants the document owner upload on Policies and Process. `member05` can view the restricted Leadership folder. Do not print or commit the password or service role key. Rollback SQL: `supabase/rollback/20261024120000_init_core.down.sql` and `supabase/rollback/20261024203000_documents_and_settings.down.sql`.
 
 ## 7. Migrations & rollback
 - All schema changes as SQL files in `supabase/migrations/`, applied dev → staging → prod; never edit prod in the dashboard.

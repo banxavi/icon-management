@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { Bell, ClipboardCheck, FileClock, FolderOpen, LayoutDashboard, LogOut, Megaphone, Menu, Settings, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import { signOut } from '@/app/actions/auth'
+import { NotificationBell } from '@/components/notification-bell'
+import type { Notice } from '@/components/notification-center'
 import { useSession } from '@/components/portal-provider'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -35,10 +37,12 @@ export function PortalShell({
   children,
   unreadCount,
   weekSubmitted,
+  notices,
 }: {
   children: React.ReactNode
   unreadCount: number
   weekSubmitted: number
+  notices: Notice[]
 }) {
   const session = useSession()
   const pathname = usePathname()
@@ -94,10 +98,7 @@ export function PortalShell({
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="secondary">{role}</Badge>
-            <Link href="/notifications" className="relative inline-flex size-8 items-center justify-center rounded-lg hover:bg-muted" aria-label="Notifications">
-              <Bell className="size-4" />
-              {unreadCount > 0 && <span className="absolute right-1 top-1 size-2 rounded-full bg-[#1cacff]" />}
-            </Link>
+            <NotificationBell unreadCount={unreadCount} notices={notices} />
             <DropdownMenu>
               <DropdownMenuTrigger aria-label="Account menu" className="rounded-full">
                 <Avatar className="size-9 bg-[#dce6f1]">

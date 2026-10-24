@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { importMembers, setAccountActive, updateAccount, type AdminResult } from '@/app/actions/admin'
+import { importMembers, setAccountActive, updateAccount, updateOrgSettings, type AdminResult } from '@/app/actions/admin'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { SETTINGS_EXTENSIONS } from '@/lib/admin/settings'
 import { roleLabel } from '@/lib/auth/permissions'
 import type { AppRole } from '@/lib/types'
 
@@ -26,7 +28,7 @@ export function AdminPanel({
 }: {
   users: AdminUser[]
   projects: string[]
-  settings: { timezone: string; retentionMonths: number; dailyWindow: string }
+  settings: { timezone: string; retentionMonths: number; dailyWindow: string; maxUploadMb: number; allowedExtensions: string[] }
 }) {
   const [tab, setTab] = useState<'users' | 'settings'>('users')
   const [message, setMessage] = useState('')
@@ -57,11 +59,39 @@ export function AdminPanel({
       {errors.length > 0 && <ul className="mb-4 list-disc rounded-lg bg-red-50 px-8 py-3 text-sm text-red-700">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
       {tab === 'settings' ? (
         <Card>
-          <CardContent className="grid gap-4 p-6 text-sm">
-            <p><span className="font-medium">Timezone:</span> {settings.timezone}</p>
-            <p><span className="font-medium">Retention:</span> {settings.retentionMonths} months</p>
-            <p><span className="font-medium">Daily window:</span> end of the next calendar day. Writes after that are rejected. There is no approval step.</p>
-            <p className="text-slate-500">Window value stored: {settings.dailyWindow}</p>
+          <CardHeader><CardTitle>Organization settings</CardTitle></CardHeader>
+          <CardContent>
+            <form action={async (formData) => show(await updateOrgSettings(formData))} className="grid max-w-xl gap-4 text-sm">
+              <label>Time zone
+                <Input name="timezone" defaultValue={settings.timezone} className="mt-1" />
+              </label>
+              <p className="text-slate-500">Team default is Asia/Saigon. Report windows use that zone.</p>
+              <label>Report retention (months)
+                <Input name="retentionMonths" type="number" min={12} max={12} defaultValue={12} readOnly className="mt-1" />
+              </label>
+              <p className="text-slate-500">Reports are kept for 12 months.</p>
+              <label>Daily report window
+                <input type="hidden" name="dailyWindow" value="end_of_next_calendar_day" />
+                <Input readOnly value="End of the next calendar day (23:59:59 Asia/Saigon)" className="mt-1" />
+              </label>
+              <p className="text-slate-500">Members can submit or edit until that instant. Later writes are rejected. There is no approval step.</p>
+              <label>Upload limit (MB)
+                <Input name="maxUploadMb" type="number" min={1} max={50} defaultValue={settings.maxUploadMb} className="mt-1" />
+              </label>
+              <fieldset>
+                <legend className="mb-2">Allowed document types</legend>
+                <div className="flex flex-wrap gap-3">
+                  {SETTINGS_EXTENSIONS.map((extension) => (
+                    <label key={extension} className="flex items-center gap-2">
+                      <input type="checkbox" name="extensions" value={extension} defaultChecked={settings.allowedExtensions.includes(extension)} />
+                      {extension}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <p className="text-slate-500">Default report viewers are the Team Leader and users with the Reviewer role. Assign them on the Users tab.</p>
+              <Button type="submit" className="w-fit bg-[#1b2a41]">Save settings</Button>
+            </form>
           </CardContent>
         </Card>
       ) : (
@@ -69,7 +99,7 @@ export function AdminPanel({
           <Card>
             <CardHeader><CardTitle>Import CSV</CardTitle></CardHeader>
             <CardContent>
-              <p className="mb-3 text-sm text-slate-500">Columns: full_name, email, role, project. At most 17 rows. New accounts receive a Supabase invite email.</p>
+              <p className="mb-3 text-sm text-slate-500">Columns: full_name, email, role, project. At most 17 rows. New accounts receive a Supabase invite email. Deactivating an account keeps historical reports. Document owner upload folders are assigned on the Documents page.</p>
               <form action={async (formData) => show(await importMembers(null, formData))} className="flex flex-wrap items-center gap-3">
                 <input name="file" type="file" accept=".csv,text/csv" required className="text-sm" aria-label="CSV file" />
                 <Button type="submit">Import</Button>
