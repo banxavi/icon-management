@@ -1,0 +1,36 @@
+# EXAMPLE ONLY — NOT ACTIVE. To enable: wire secrets, then copy to
+# .github/workflows/backup.yml. Until then keep this file as .example.
+# Required repo secrets: SUPABASE_DB_URL_STAGING (and _PROD later). Offsite creds TBD.
+name: Daily DB backup (example)
+on:
+  # schedule:
+  #   - cron: "0 19 * * *"   # 02:00 Asia/Saigon (19:00 UTC)
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [staging]   # add prod after go-live
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pg_dump 17
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y postgresql-common
+          yes | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          sudo apt-get install -y postgresql-client-17
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets[format('SUPABASE_DB_URL_{0}', matrix.env == 'staging' && 'STAGING' || 'PROD')] }}
+          BACKUP_LABEL: ${{ matrix.env }}
+          BACKUP_DIR: backups
+        run: bash scripts/backup-supabase.sh
+      # Artifacts max 90 days — short-term copy only; 12-month copy must go offsite.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ matrix.env }}-${{ github.run_id }}
+          path: backups/
+          retention-days: 90
+      # - name: Upload offsite (TODO: rclone/S3 with 12-month lifecycle)
