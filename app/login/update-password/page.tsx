@@ -54,7 +54,7 @@ export default function UpdatePasswordPage() {
           </label>
         </div>
         {error && <p className="mt-4 text-sm text-red-700">{error}</p>}
-        <Button disabled={pending} className="mt-6 h-11 w-full bg-[#1b2a41]">Update password</Button>
+        <Button type="submit" disabled={pending} className="mt-6 h-11 w-full bg-[#1b2a41]">Update password</Button>
       </form>
     </main>
   )

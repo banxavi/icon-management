@@ -49,7 +49,7 @@ export function LoginForm({ initialError, notice }: { initialError?: string; not
               </div>
               {notice && <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
               {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700"><LockKeyhole className="mr-2 inline size-4" />{error}</div>}
-              <Button disabled={pending} className="h-11 bg-[#1b2a41] hover:bg-[#263b59]">
+              <Button type="submit" disabled={pending} className="h-11 bg-[#1b2a41] hover:bg-[#263b59]">
                 {pending ? 'Signing in...' : 'Sign in'} <ArrowRight className="ml-auto size-4" />
               </Button>
             </form>

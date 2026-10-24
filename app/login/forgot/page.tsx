@@ -20,7 +20,7 @@ export default function ForgotPasswordPage() {
         </div>
         {state.error && <p className="mt-4 text-sm text-red-700">{state.error}</p>}
         {state.message && <p className="mt-4 text-sm text-emerald-700">{state.message}</p>}
-        <Button disabled={pending} className="mt-6 h-11 w-full bg-[#1b2a41]">Send reset link</Button>
+        <Button type="submit" disabled={pending} className="mt-6 h-11 w-full bg-[#1b2a41]">Send reset link</Button>
         <Link href="/login" className="mt-4 block text-center text-sm text-[#e2894b]">Back to sign in</Link>
       </form>
     </main>
