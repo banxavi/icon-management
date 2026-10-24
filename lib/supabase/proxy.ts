@@ -1,52 +1,107 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { alternateExpiredAuthCookies, clearedAuthCookieOptions, isVerifiedSignedOut, supabaseSessionCookieNames } from '@/lib/auth/cookies'
 import { shouldRedirectToLogin } from '@/lib/auth/paths'
 import { publicSupabaseEnv } from '@/lib/supabase/env'
 
-function hasSessionCookie(request: NextRequest): boolean {
-  return request.cookies.getAll().some((cookie) => cookie.name.includes('-auth-token'))
+const CACHE_HEADERS = ['cache-control', 'expires', 'pragma'] as const
+
+type PendingCookie = {
+  name: string
+  value: string
+  options?: Parameters<NextResponse['cookies']['set']>[2]
+}
+
+function copyCacheHeaders(from: NextResponse, to: NextResponse) {
+  for (const header of CACHE_HEADERS) {
+    const value = from.headers.get(header)
+    if (value) to.headers.set(header, value)
+  }
+}
+
+function writePending(response: NextResponse, pending: PendingCookie[]) {
+  for (const cookie of pending) {
+    response.cookies.set(cookie.name, cookie.value, cookie.options)
+  }
+}
+
+function expireSessionCookies(response: NextResponse, cookies: readonly { name: string }[]) {
+  const options = clearedAuthCookieOptions()
+  const names = supabaseSessionCookieNames(cookies)
+  for (const name of names) {
+    response.cookies.set(name, '', options)
+  }
+  for (const name of names) {
+    for (const header of alternateExpiredAuthCookies(name)) {
+      response.headers.append('set-cookie', header)
+    }
+  }
 }
 
 export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl
-  let response = NextResponse.next({ request })
-  const env = publicSupabaseEnv()
-  let user: { id: string } | null = null
 
-  if (env && hasSessionCookie(request)) {
+  // Sign-out owns the response cookies. Refreshing the session here would
+  // write a new auth cookie onto the same response and undo the logout.
+  if (pathname === '/auth/signout') {
+    return NextResponse.next({ request })
+  }
+
+  let supabaseResponse = NextResponse.next({ request })
+  const env = publicSupabaseEnv()
+  const originalCookies = request.cookies.getAll()
+  const pending: PendingCookie[] = []
+  let user: { id: string } | null = null
+  let verifiedSignedOut = false
+
+  if (env && supabaseSessionCookieNames(originalCookies).length > 0) {
     const supabase = createServerClient(env.url, env.anonKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          response = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
+          supabaseResponse = NextResponse.next({ request })
+          pending.length = 0
+          pending.push(...cookiesToSet)
+          writePending(supabaseResponse, pending)
+          if (headers) {
+            for (const [key, value] of Object.entries(headers)) {
+              if (value) supabaseResponse.headers.set(key, value)
+            }
+          }
         },
       },
     })
     try {
-      const { data } = await supabase.auth.getUser()
+      const { data, error } = await supabase.auth.getUser()
       user = data.user
+      verifiedSignedOut = isVerifiedSignedOut(error, Boolean(data.user))
     } catch {
       user = null
     }
   }
 
-  if (shouldRedirectToLogin(pathname, Boolean(user))) {
+  const redirectTo = (path: string) => {
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/login'
+    redirectUrl.pathname = path
     redirectUrl.search = ''
-    return NextResponse.redirect(redirectUrl)
+    const response = NextResponse.redirect(redirectUrl)
+    writePending(response, pending)
+    copyCacheHeaders(supabaseResponse, response)
+    if (verifiedSignedOut) expireSessionCookies(response, originalCookies)
+    return response
+  }
+
+  if (shouldRedirectToLogin(pathname, Boolean(user))) {
+    return redirectTo('/login')
   }
 
   if (user && pathname === '/login') {
-    const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/dashboard'
-    redirectUrl.search = ''
-    return NextResponse.redirect(redirectUrl)
+    return redirectTo('/dashboard')
   }
 
-  return response
+  if (verifiedSignedOut) expireSessionCookies(supabaseResponse, originalCookies)
+  return supabaseResponse
 }

@@ -1,7 +1,7 @@
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { ACTIVITY_TOUCH_MS, IDLE_MS } from '@/lib/auth/lockout'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, endSupabaseSession } from '@/lib/supabase/server'
 import type { AppRole, SessionUser } from '@/lib/types'
 
 const ROLE_CODES = new Set<AppRole>(['member', 'team_leader', 'reviewer', 'admin', 'document_owner'])
@@ -49,11 +49,11 @@ export async function requireSession(): Promise<SessionUser> {
   if (!session) redirect('/login')
   const supabase = await createClient()
   if (session.status !== 'active') {
-    if (supabase) await supabase.auth.signOut()
+    await endSupabaseSession()
     redirect('/login?error=deactivated')
   }
   if (session.lastActivityAt && Date.now() - new Date(session.lastActivityAt).getTime() > IDLE_MS) {
-    if (supabase) await supabase.auth.signOut()
+    await endSupabaseSession()
     redirect('/login?error=idle')
   }
   if (

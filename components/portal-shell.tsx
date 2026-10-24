@@ -4,14 +4,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Bell, ClipboardCheck, FileClock, FolderOpen, LayoutDashboard, LogOut, Megaphone, Menu, Settings, Users, X } from 'lucide-react'
 import { useState } from 'react'
-import { signOut } from '@/app/actions/auth'
 import { NotificationBell } from '@/components/notification-bell'
 import type { Notice } from '@/components/notification-center'
 import { useSession } from '@/components/portal-provider'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { canSubmitReport, canViewTeamDashboard, primaryRole, roleLabel } from '@/lib/auth/permissions'
 import { formatLongDate, greetingFor } from '@/lib/reports/window'
@@ -106,10 +105,15 @@ export function PortalShell({
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => signOut()}>
-                  <LogOut className="size-4" />
-                  Sign out
-                </DropdownMenuItem>
+                <form action="/auth/signout" method="post">
+                  <button
+                    type="submit"
+                    className="flex w-full cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <LogOut className="size-4" />
+                    Sign out
+                  </button>
+                </form>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

@@ -1,12 +1,13 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { clearLock, isLocked, recordFailure, type LockState } from '@/lib/auth/lockout'
 import { clientIp } from '@/lib/auth/request'
 import { messages } from '@/lib/messages'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { siteUrl } from '@/lib/supabase/env'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, endSupabaseSession } from '@/lib/supabase/server'
 
 export type AuthResult = { error?: string; message?: string }
 
@@ -76,7 +77,7 @@ export async function signIn(_prev: AuthResult, formData: FormData): Promise<Aut
 
   const { data: profile } = await supabase.from('profiles').select('status').eq('id', data.user.id).maybeSingle()
   if (profile?.status === 'inactive') {
-    await supabase.auth.signOut()
+    await endSupabaseSession()
     await audit('login_denied', { email, ip, reason: 'inactive' }, data.user.id)
     return { error: messages.deactivated }
   }
@@ -88,8 +89,8 @@ export async function signIn(_prev: AuthResult, formData: FormData): Promise<Aut
 }
 
 export async function signOut() {
-  const supabase = await createClient()
-  if (supabase) await supabase.auth.signOut()
+  await endSupabaseSession()
+  revalidatePath('/', 'layout')
   redirect('/login')
 }
 

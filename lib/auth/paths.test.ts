@@ -15,6 +15,8 @@ describe('unauthenticated route guard', () => {
     expect(shouldRedirectToLogin('/login/forgot', false)).toBe(false)
     expect(shouldRedirectToLogin('/login/update-password', false)).toBe(false)
     expect(shouldRedirectToLogin('/auth/callback', false)).toBe(false)
+    expect(shouldRedirectToLogin('/auth/signout', false)).toBe(false)
+    expect(shouldRedirectToLogin('/auth/signout', true)).toBe(false)
     expect(shouldRedirectToLogin('/api/reports/abc', false)).toBe(false)
   })
 
