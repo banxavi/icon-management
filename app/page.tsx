@@ -1,2 +1,9 @@
 import { redirect } from 'next/navigation'
-export default function Page() { redirect('/dashboard') }
+import { getSessionUser } from '@/lib/auth/session'
+
+export const dynamic = 'force-dynamic'
+
+export default async function Page() {
+  const session = await getSessionUser()
+  redirect(session ? '/dashboard' : '/login')
+}

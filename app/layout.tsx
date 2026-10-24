@@ -1,10 +1,11 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Toaster } from 'sonner'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'ICON Team 1 Portal',
-  description: 'Cổng thông tin nội bộ của team ICON 1',
+  description: 'Internal portal for ICON Team 1 daily reports',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -36,9 +37,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="vi" className="light">
+    <html lang="en" className="light">
       <body className="antialiased">
         {children}
+        <Toaster position="top-right" />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

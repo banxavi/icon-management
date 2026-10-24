@@ -1,0 +1,29 @@
+{
+  "leaderEmail": "team.leader@icon-dev.example",
+  "reviewerEmail": "reviewer.que@icon-dev.example",
+  "reviewerAssignedEmails": [
+    "member05@icon-dev.example",
+    "member06@icon-dev.example",
+    "member07@icon-dev.example",
+    "member08@icon-dev.example"
+  ],
+  "users": [
+    {"id": "30000000-0000-4000-8000-000000000001", "email": "team.leader@icon-dev.example", "fullName": "Nguyen Minh Anh", "role": "team_leader", "project": "ICON Core", "contact": "Teams: minh.anh", "skills": ["Leadership", "Delivery"]},
+    {"id": "30000000-0000-4000-8000-000000000002", "email": "reviewer.que@icon-dev.example", "fullName": "Que Pham", "role": "reviewer", "project": "Support Platform", "contact": "Teams: que.pham", "skills": ["Review", "Quality"]},
+    {"id": "30000000-0000-4000-8000-000000000003", "email": "docs.owner@icon-dev.example", "fullName": "Le Hoang Nam", "role": "document_owner", "project": "Internal Tools", "contact": "Teams: hoang.nam", "skills": ["Documentation", "Architecture"]},
+    {"id": "30000000-0000-4000-8000-000000000004", "email": "admin@icon-dev.example", "fullName": "Pham Thu Ha", "role": "admin", "project": "ICON Core", "contact": "Teams: thu.ha", "skills": ["Administration"]},
+    {"id": "30000000-0000-4000-8000-000000000005", "email": "member05@icon-dev.example", "fullName": "Do Duc Long", "role": "member", "project": "ICON Core", "contact": "Teams: duc.long", "skills": ["TypeScript"]},
+    {"id": "30000000-0000-4000-8000-000000000006", "email": "member06@icon-dev.example", "fullName": "Bui Thanh Tam", "role": "member", "project": "Support Platform", "contact": "Teams: thanh.tam", "skills": ["Testing"]},
+    {"id": "30000000-0000-4000-8000-000000000007", "email": "member07@icon-dev.example", "fullName": "Vo Ngoc Lan", "role": "member", "project": "Internal Tools", "contact": "Teams: ngoc.lan", "skills": ["Next.js"]},
+    {"id": "30000000-0000-4000-8000-000000000008", "email": "member08@icon-dev.example", "fullName": "Dang Hoang Phuc", "role": "member", "project": "ICON Core", "contact": "Teams: hoang.phuc", "skills": ["SQL"]},
+    {"id": "30000000-0000-4000-8000-000000000009", "email": "member09@icon-dev.example", "fullName": "Ngo Mai Chi", "role": "member", "project": "Support Platform", "contact": "Teams: mai.chi", "skills": ["Support"]},
+    {"id": "30000000-0000-4000-8000-000000000010", "email": "member10@icon-dev.example", "fullName": "Hoang Tuan Kiet", "role": "member", "project": "Internal Tools", "contact": "Teams: tuan.kiet", "skills": ["Automation"]},
+    {"id": "30000000-0000-4000-8000-000000000011", "email": "member11@icon-dev.example", "fullName": "Ly Bao Chau", "role": "member", "project": "ICON Core", "contact": "Teams: bao.chau", "skills": ["React"]},
+    {"id": "30000000-0000-4000-8000-000000000012", "email": "member12@icon-dev.example", "fullName": "Trinh Cam Tu", "role": "member", "project": "Support Platform", "contact": "Teams: cam.tu", "skills": ["QA"]},
+    {"id": "30000000-0000-4000-8000-000000000013", "email": "member13@icon-dev.example", "fullName": "Phan Duc Huy", "role": "member", "project": "Internal Tools", "contact": "Teams: duc.huy", "skills": ["DevOps"]},
+    {"id": "30000000-0000-4000-8000-000000000014", "email": "member14@icon-dev.example", "fullName": "Mai Khanh Linh", "role": "member", "project": "ICON Core", "contact": "Teams: khanh.linh", "skills": ["Design"]},
+    {"id": "30000000-0000-4000-8000-000000000015", "email": "member15@icon-dev.example", "fullName": "Cao Minh Tri", "role": "member", "project": "Support Platform", "contact": "Teams: minh.tri", "skills": ["Backend"]},
+    {"id": "30000000-0000-4000-8000-000000000016", "email": "member16@icon-dev.example", "fullName": "Dinh Ha My", "role": "member", "project": "Internal Tools", "contact": "Teams: ha.my", "skills": ["Data"]},
+    {"id": "30000000-0000-4000-8000-000000000017", "email": "member17@icon-dev.example", "fullName": "Luong Quoc Viet", "role": "member", "project": "ICON Core", "contact": "Teams: quoc.viet", "skills": ["Frontend"]}
+  ]
+}

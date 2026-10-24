@@ -1,10 +1,17 @@
-'use client'
-// Story: AUTH-01
-import { FormEvent, useState } from 'react'
-import Link from 'next/link'
-import { ArrowRight, LockKeyhole } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-export default function LoginPage() { const [attempts, setAttempts] = useState(0); const [error, setError] = useState(''); const submit = (e: FormEvent) => { e.preventDefault(); const next = attempts + 1; setAttempts(next); setError(next >= 5 ? 'Tài khoản đã bị khóa tạm thời sau 5 lần đăng nhập không thành công.' : 'Email hoặc mật khẩu chưa chính xác.') }; return <main className="flex min-h-screen items-center justify-center bg-[#f6f7f9] p-4"><div className="grid w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-xl md:grid-cols-2"><div className="hidden bg-[#1b2a41] p-10 text-white md:flex md:flex-col md:justify-between"><div><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-[#f0a060] font-bold text-[#1b2a41]">I</div><span className="font-semibold">ICON TEAM 1</span></div><div className="mt-24"><p className="text-sm font-medium text-[#f0a060]">TEAM PORTAL</p><h1 className="mt-3 text-4xl font-semibold leading-tight">Làm việc rõ ràng.<br />Tiến độ mạch lạc.</h1><p className="mt-5 max-w-sm text-slate-300">Không gian chung để team cập nhật, phối hợp và cùng tiến về phía trước.</p></div></div><p className="text-sm text-slate-400">© 2026 ICON Team 1</p></div><Card className="rounded-none border-0 shadow-none"><CardHeader className="px-8 pt-10 md:px-12"><div className="mb-8 flex items-center gap-3 md:hidden"><div className="flex size-9 items-center justify-center rounded-xl bg-[#f0a060] font-bold text-[#1b2a41]">I</div><span className="font-semibold text-[#1b2a41]">ICON TEAM 1</span></div><CardTitle className="text-2xl">Chào mừng trở lại</CardTitle><CardDescription>Đăng nhập để tiếp tục với portal của team.</CardDescription></CardHeader><CardContent className="px-8 pb-10 md:px-12"><form onSubmit={submit} className="flex flex-col gap-5"><div className="flex flex-col gap-2"><Label htmlFor="email">Email công ty</Label><Input id="email" type="email" placeholder="ten@icon4.vn" required /></div><div className="flex flex-col gap-2"><div className="flex justify-between"><Label htmlFor="password">Mật khẩu</Label><button type="button" className="text-xs font-medium text-[#e2894b]">Quên mật khẩu?</button></div><Input id="password" type="password" placeholder="••••••••" required /></div>{error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700"><LockKeyhole className="mr-2 inline size-4" />{error}</div>}<Button disabled={attempts >= 5} className="h-11 bg-[#1b2a41] hover:bg-[#263b59]">Đăng nhập <ArrowRight className="ml-auto size-4" /></Button><div className="flex items-center gap-3 text-xs text-slate-400"><div className="h-px flex-1 bg-slate-200" />hoặc<div className="h-px flex-1 bg-slate-200" /></div><Button type="button" variant="outline" className="h-11">Đăng nhập bằng SSO công ty</Button><p className="text-center text-xs text-slate-400">Đây là môi trường demo. <Link href="/dashboard" className="font-medium text-[#e2894b]">Vào portal xem thử</Link></p></form></CardContent></Card></div></main> }
+import { messages } from '@/lib/messages'
+import { LoginForm } from './login-form'
+
+const errors: Record<string, string> = {
+  idle: messages.idle,
+  deactivated: messages.deactivated,
+}
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; reset?: string }> }) {
+  const params = await searchParams
+  return (
+    <LoginForm
+      initialError={params.error ? errors[params.error] : undefined}
+      notice={params.reset ? messages.passwordUpdated : undefined}
+    />
+  )
+}

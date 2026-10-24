@@ -53,6 +53,15 @@ Supabase Free has **no PITR** and no downloadable backups → we run our own log
 - Retention 12 months: dailies 35 days + monthly 12 months, stored **offsite** (GitHub artifacts max 90 days — not enough alone). Offsite target TBD.
 - Restore test: restore into a scratch project at least once before go-live, then quarterly.
 
+## 6b. Schema seed (dev)
+Apply `supabase/migrations/20261024120000_init_core.sql` first (`supabase link --project-ref egylwfpxaxqqlmselygj && supabase db push`). Then, with the service role and a password only in your shell:
+
+```bash
+SEED_DEV_PASSWORD='(operator supplied)' pnpm seed:dev
+```
+
+That creates 17 fake members, sets the team leader, and assigns the reviewer to four members. Do not print or commit the password or service role key. Rollback SQL: `supabase/rollback/20261024120000_init_core.down.sql`.
+
 ## 7. Migrations & rollback
 - All schema changes as SQL files in `supabase/migrations/`, applied dev → staging → prod; never edit prod in the dashboard.
 - Prefer additive (expand/contract) changes; each migration PR includes a written down/rollback SQL in the PR description.

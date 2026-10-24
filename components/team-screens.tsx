@@ -1,22 +1,135 @@
 'use client'
-// Stories: REP-05, REP-07, WFH-02, REQ-01, REQ-02
+
 import { useState } from 'react'
-import { CalendarDays, CheckCircle2, Download, Filter, FileText, AlertTriangle, Clock3, Home, Search, X } from 'lucide-react'
+import { Download } from 'lucide-react'
+import { useSession } from '@/components/portal-provider'
+import { MockBanner } from '@/components/mock-banner'
+import { Forbidden } from '@/components/forbidden'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { members, projects, requests, teamDailyStatus, teamWeeklySummary } from '@/lib/mock-data'
-import { usePortalRole } from '@/components/portal-provider'
+import { canViewTeamDashboard } from '@/lib/auth/permissions'
+import { members, projects, requests, teamWeeklySummary } from '@/lib/mock-data'
 
-const statusClass: Record<string, string> = { 'Đã nộp': 'bg-emerald-50 text-emerald-700 border-emerald-200', 'Chưa nộp': 'bg-slate-100 text-slate-600', 'Nộp trễ': 'bg-amber-50 text-amber-700 border-amber-200', 'Nghỉ': 'bg-blue-50 text-blue-700 border-blue-200', 'Mới': 'bg-orange-50 text-orange-700 border-orange-200', 'Đang xử lý': 'bg-blue-50 text-blue-700 border-blue-200', 'Hoàn tất': 'bg-emerald-50 text-emerald-700 border-emerald-200', 'Từ chối': 'bg-rose-50 text-rose-700 border-rose-200' }
-function Status({ children }: { children: string }) { return <Badge variant="outline" className={statusClass[children] || ''}>{children}</Badge> }
-function RoleNotice() { return <Card className="border-0 shadow-sm"><CardContent className="p-8 text-center"><p className="text-lg font-semibold">Bạn không có quyền truy cập màn hình này</p><p className="mt-2 text-sm text-slate-500">Hãy chuyển Demo role sang Team Leader hoặc Reviewer để xem dữ liệu.</p></CardContent></Card> }
-function Stat({ label, value, icon: Icon }: { label: string; value: string; icon: typeof CheckCircle2 }) { return <Card className="border-0 shadow-sm"><CardContent className="flex items-center gap-4 p-5"><div className="rounded-xl bg-[#fff1e7] p-3 text-[#e2894b]"><Icon className="size-5" /></div><div><p className="text-2xl font-semibold">{value}</p><p className="text-sm text-slate-500">{label}</p></div></CardContent></Card> }
-export function TeamDashboard() { const role = usePortalRole(); if (role === 'Member') return <RoleNotice />; const [selected, setSelected] = useState<(typeof teamDailyStatus)[number] | null>(null); const [query, setQuery] = useState(''); const rows = teamDailyStatus.filter(x => x.name.toLowerCase().includes(query.toLowerCase())); return <div className="flex flex-col gap-6"><div><p className="text-sm font-medium text-[#e2894b]">TEAM LEADER</p><h1 className="mt-1 text-3xl font-semibold">Tổng quan hôm nay</h1><p className="mt-2 text-slate-500">Theo dõi nhịp báo cáo và trạng thái làm việc của 17 thành viên.</p></div><div className="grid gap-4 md:grid-cols-3"><Stat label="Số người đã nộp" value="12/17" icon={CheckCircle2} /><Stat label="Số WFH hôm nay" value="4" icon={Home} /><Stat label="Có vướng mắc" value="3" icon={AlertTriangle} /></div><Card className="border-0 shadow-sm"><CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3"><CardTitle className="text-base">Trạng thái thành viên</CardTitle><div className="flex gap-2"><Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm thành viên..." className="w-52" /><Button variant="outline" size="icon" aria-label="Bộ lọc"><Filter /></Button></div></CardHeader><CardContent><div className="mb-4 flex flex-wrap gap-2"><Input type="date" defaultValue="2026-10-24" className="w-40" /><Select defaultValue="all"><SelectTrigger className="w-44"><SelectValue placeholder="Dự án" /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả dự án</SelectItem>{projects.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b text-xs text-slate-500"><tr><th className="px-3 py-3">Thành viên</th><th className="px-3 py-3">Dự án</th><th className="px-3 py-3">Trạng thái</th><th className="px-3 py-3">Làm việc</th><th className="px-3 py-3">Ghi chú</th></tr></thead><tbody>{rows.map(row => <tr key={row.id} onClick={() => setSelected(row)} className={`cursor-pointer border-b last:border-0 hover:bg-slate-50 ${row.blocker ? 'bg-orange-50/60' : ''}`}><td className="px-3 py-3 font-medium">{row.name}</td><td className="px-3 py-3 text-slate-500">{row.project}</td><td className="px-3 py-3"><Status>{row.status}</Status></td><td className="px-3 py-3"><Badge variant="secondary" title={row.wfhReason}>{row.workMode}</Badge></td><td className="px-3 py-3 text-amber-700">{row.blocker}</td></tr>)}</tbody></table></div></CardContent></Card><Sheet open={!!selected} onOpenChange={open => !open && setSelected(null)}><SheetContent><SheetHeader><SheetTitle>Chi tiết báo cáo</SheetTitle></SheetHeader>{selected && <div className="flex flex-col gap-5 py-6"><div><p className="text-xl font-semibold">{selected.name}</p><p className="text-sm text-slate-500">{selected.project} · 24/10/2026</p></div><Status>{selected.status}</Status><div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">{selected.summary}</div>{selected.wfhReason && <div><p className="text-sm font-medium">Lý do WFH</p><p className="mt-1 text-sm text-slate-500">{selected.wfhReason}</p></div>}</div>}</SheetContent></Sheet></div> }
-export function WeeklyTeamReport() { const role = usePortalRole(); if (role === 'Member') return <RoleNotice />; const [summary, setSummary] = useState('Tuần này team duy trì tiến độ ổn định, tập trung hoàn thiện các hạng mục trọng tâm và xử lý các điểm nghẽn về quyền truy cập.'); return <div className="flex flex-col gap-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-medium text-[#e2894b]">REP-07</p><h1 className="mt-1 text-3xl font-semibold">Báo cáo tuần team</h1><p className="mt-2 text-slate-500">Tổng hợp theo từng dự án · Tuần 21/10 – 25/10/2026</p></div><Button variant="outline" className="gap-2"><Download />Xuất PDF/Excel</Button></div><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Tóm tắt theo dự án</CardTitle></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b text-xs text-slate-500"><tr><th className="px-3 py-3">Dự án</th><th className="px-3 py-3">Thành viên</th><th className="px-3 py-3">Đã nộp</th><th className="px-3 py-3">Tiến độ</th><th className="px-3 py-3">Điểm nổi bật</th></tr></thead><tbody>{teamWeeklySummary.map(x => <tr key={x.project} className="border-b"><td className="px-3 py-4 font-medium">{x.project}</td><td className="px-3 py-4">{x.members}</td><td className="px-3 py-4">{x.submitted}/{x.members}</td><td className="px-3 py-4 font-medium text-[#e2894b]">{x.progress}</td><td className="px-3 py-4 text-slate-600">{x.highlight}</td></tr>)}</tbody></table></div></CardContent></Card><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Tóm tắt của leader</CardTitle></CardHeader><CardContent><Textarea value={summary} onChange={e => setSummary(e.target.value)} readOnly={role === 'Reviewer'} className="min-h-32" /></CardContent></Card></div> }
- export function TeamCalendar() { const role = usePortalRole(); if (role === 'Member') return <RoleNotice />; const days = Array.from({length: 7}, (_, i) => `${20+i}/10`); return <div className="flex flex-col gap-6"><div><p className="text-sm font-medium text-[#e2894b]">WFH-02</p><h1 className="mt-1 text-3xl font-semibold">Lịch làm việc team</h1><p className="mt-2 text-slate-500">Tuần hiện tại · Office, WFH và Nghỉ</p></div><div className="flex gap-2"><Button variant="outline">Tháng</Button><Button>Tuần</Button></div><Card className="overflow-hidden border-0 shadow-sm"><CardContent className="overflow-x-auto p-0"><table className="min-w-[760px] w-full text-center text-sm"><thead className="bg-slate-50"><tr><th className="p-4 text-left">Thành viên</th>{days.map(d => <th key={d} className="p-4">{d}</th>)}</tr></thead><tbody>{members.slice(0, 10).map((m, i) => <tr key={m.id} className="border-t"><td className="p-4 text-left font-medium">{m.name}</td>{days.map((d, j) => <td key={d} className="p-2"><Badge variant="outline" className={j === 3 && i % 2 === 0 ? 'bg-orange-50 text-orange-700' : j === 5 && i % 3 === 0 ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}>{j === 3 && i % 2 === 0 ? 'WFH' : j === 5 && i % 3 === 0 ? 'Nghỉ' : 'Office'}</Badge></td>)}</tr>)}</tbody></table></CardContent></Card></div> }
-export function RequestsScreen() { const role = usePortalRole(); const [items, setItems] = useState(requests); const [title, setTitle] = useState(''); const update = (id: string, status: string) => setItems(items.map(item => item.id === id ? {...item, status} : item)); return <div className="flex flex-col gap-6"><div><p className="text-sm font-medium text-[#e2894b]">REQ-01 · REQ-02</p><h1 className="mt-1 text-3xl font-semibold">Yêu cầu hỗ trợ</h1><p className="mt-2 text-slate-500">Gửi yêu cầu mới hoặc theo dõi tiến độ xử lý của team.</p></div><Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Tạo yêu cầu mới</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-3"><Select defaultValue="equipment"><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="equipment">Thiết bị</SelectItem><SelectItem value="access">Quyền truy cập</SelectItem><SelectItem value="training">Đào tạo</SelectItem><SelectItem value="proposal">Đề xuất</SelectItem></SelectContent></Select><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mô tả ngắn yêu cầu" className="min-w-64 flex-1" /><Button onClick={() => { if (title) { setItems([{id: `REQ-00${items.length + 4}`, member: 'Nguyễn Minh Anh', type: 'Thiết bị', title, status: 'Mới', created: '24/10/2026'}, ...items]); setTitle('') } }}>Gửi yêu cầu</Button></CardContent></Card><Card className="border-0 shadow-sm"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Danh sách yêu cầu</CardTitle><div className="flex gap-2"><Select defaultValue="all"><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả trạng thái</SelectItem><SelectItem value="Mới">Mới</SelectItem><SelectItem value="Đang xử lý">Đang xử lý</SelectItem><SelectItem value="Hoàn tất">Hoàn tất</SelectItem></SelectContent></Select><Button variant="outline" size="icon" aria-label="Tìm kiếm"><Search /></Button></div></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b text-xs text-slate-500"><tr><th className="px-3 py-3">Mã</th><th className="px-3 py-3">Người gửi</th><th className="px-3 py-3">Loại</th><th className="px-3 py-3">Nội dung</th><th className="px-3 py-3">Trạng thái</th></tr></thead><tbody>{items.map(item => <tr key={item.id} className="border-b"><td className="px-3 py-4 font-medium">{item.id}</td><td className="px-3 py-4">{item.member}</td><td className="px-3 py-4">{item.type}</td><td className="px-3 py-4">{item.title}</td><td className="px-3 py-4"><Select value={item.status} onValueChange={value => role !== 'Reviewer' && update(item.id, value)} disabled={role === 'Reviewer'}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Mới">Mới</SelectItem><SelectItem value="Đang xử lý">Đang xử lý</SelectItem><SelectItem value="Hoàn tất">Hoàn tất</SelectItem><SelectItem value="Từ chối">Từ chối</SelectItem></SelectContent></Select></td></tr>)}</tbody></table></div></CardContent></Card></div> }
+export function WeeklyTeamReport() {
+  const session = useSession()
+  const [summary, setSummary] = useState('The team kept a steady pace this week and cleared the main delivery items.')
+  if (!canViewTeamDashboard(session.roles)) return <Forbidden />
+  return (
+    <div className="flex flex-col gap-6">
+      <MockBanner />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-[#e2894b]">TEAM WEEKLY</p>
+          <h1 className="mt-1 text-3xl font-semibold">Team weekly report</h1>
+          <p className="mt-2 text-slate-500">Sample summary by project. Export is not connected.</p>
+        </div>
+        <Button variant="outline" className="gap-2" type="button" disabled><Download />Export PDF/Excel</Button>
+      </div>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">Project summary</CardTitle></CardHeader>
+        <CardContent>
+          <table className="w-full text-left text-sm">
+            <thead className="border-b text-xs text-slate-500"><tr><th className="px-3 py-3">Project</th><th className="px-3 py-3">Members</th><th className="px-3 py-3">Submitted</th><th className="px-3 py-3">Progress</th><th className="px-3 py-3">Highlight</th></tr></thead>
+            <tbody>
+              {teamWeeklySummary.map((row) => (
+                <tr key={row.project} className="border-b">
+                  <td className="px-3 py-4 font-medium">{row.project}</td>
+                  <td className="px-3 py-4">{row.members}</td>
+                  <td className="px-3 py-4">{row.submitted}/{row.members}</td>
+                  <td className="px-3 py-4 font-medium text-[#e2894b]">{row.progress}</td>
+                  <td className="px-3 py-4 text-slate-600">{row.highlight}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">Leader summary</CardTitle></CardHeader>
+        <CardContent><Textarea value={summary} onChange={(event) => setSummary(event.target.value)} readOnly className="min-h-32" /></CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export function TeamCalendar() {
+  const session = useSession()
+  if (!canViewTeamDashboard(session.roles)) return <Forbidden />
+  const days = ['Mon 20', 'Tue 21', 'Wed 22', 'Thu 23', 'Fri 24']
+  return (
+    <div className="flex flex-col gap-6">
+      <MockBanner />
+      <div>
+        <p className="text-sm font-medium text-[#e2894b]">CALENDAR</p>
+        <h1 className="mt-1 text-3xl font-semibold">Team calendar</h1>
+        <p className="mt-2 text-slate-500">Sample Office and WFH markers. Leave approval is not part of this release.</p>
+      </div>
+      <Card className="overflow-hidden border-0 shadow-sm">
+        <CardContent className="overflow-x-auto p-0">
+          <table className="min-w-[720px] w-full text-center text-sm">
+            <thead className="bg-slate-50"><tr><th className="p-4 text-left">Member</th>{days.map((day) => <th key={day} className="p-4">{day}</th>)}</tr></thead>
+            <tbody>
+              {members.slice(0, 8).map((member, index) => (
+                <tr key={member.id} className="border-t">
+                  <td className="p-4 text-left font-medium">{member.name}</td>
+                  {days.map((day, dayIndex) => <td key={day} className="p-2"><Badge variant="outline">{dayIndex === 2 && index % 2 === 0 ? 'WFH' : 'Office'}</Badge></td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export function RequestsScreen() {
+  const [items, setItems] = useState(requests)
+  const [title, setTitle] = useState('')
+  return (
+    <div className="flex flex-col gap-6">
+      <MockBanner />
+      <div>
+        <p className="text-sm font-medium text-[#e2894b]">REQUESTS</p>
+        <h1 className="mt-1 text-3xl font-semibold">Support requests</h1>
+        <p className="mt-2 text-slate-500">Sample list only. Nothing is saved.</p>
+      </div>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">New request</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap gap-3">
+          <select defaultValue="equipment" className="h-9 rounded-lg border px-2 text-sm" aria-label="Request type">
+            <option value="equipment">Equipment</option>
+            <option value="access">Access</option>
+            <option value="training">Training</option>
+            <option value="proposal">Proposal</option>
+          </select>
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Short description" className="min-w-64 flex-1" />
+          <Button type="button" onClick={() => { if (!title.trim()) return; setItems([{ id: `REQ-${items.length + 4}`, member: 'You', type: 'Equipment', title, status: 'New', created: '2026-10-24' }, ...items]); setTitle('') }}>Add to preview</Button>
+        </CardContent>
+      </Card>
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">Request list</CardTitle></CardHeader>
+        <CardContent>
+          <table className="w-full text-left text-sm">
+            <thead className="border-b text-xs text-slate-500"><tr><th className="px-3 py-3">ID</th><th className="px-3 py-3">From</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Title</th><th className="px-3 py-3">Status</th></tr></thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-b">
+                  <td className="px-3 py-4 font-medium">{item.id}</td>
+                  <td className="px-3 py-4">{item.member}</td>
+                  <td className="px-3 py-4">{item.type}</td>
+                  <td className="px-3 py-4">{item.title}</td>
+                  <td className="px-3 py-4">{item.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-slate-400">Projects in the sample: {projects.join(', ')}</p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

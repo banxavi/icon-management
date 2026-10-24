@@ -1,8 +1,16 @@
-# Internal Operations Portal
+# ICON Team 1 Portal
 
-Vietnamese internal operations portal for daily/weekly reporting, WFH tracking, team management, documents, requests, notifications, announcements, and administration.
+English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, WFH declarations, in-app notifications, and the team leader dashboard use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
 
-> **Prototype status:** This repository is a front-end prototype. Data, authentication, permissions, and all integrations are mocked. See [What must be replaced](#what-must-be-replaced-before-production).
+Environment setup, including the dev project `egylwfpxaxqqlmselygj`, is in [DEPLOY.md](DEPLOY.md). Copy `.env.example` to `.env.local` and fill keys from the dashboard. Never commit secrets.
+
+```bash
+pnpm install
+pnpm dev
+pnpm typecheck
+pnpm test
+pnpm lint
+```
 
 ## Quick start
 
@@ -25,6 +33,10 @@ Available scripts:
 | `pnpm dev` | Start the Next.js development server |
 | `pnpm build` | Create a production build |
 | `pnpm start` | Run the production build |
+| `pnpm lint` | Lint TypeScript sources |
+| `pnpm typecheck` | Run `tsc --noEmit` |
+| `pnpm test` | Run unit tests |
+| `pnpm seed:dev` | Seed the dev Supabase project (needs service role and `SEED_DEV_PASSWORD` in the shell) |
 
 ## Project structure
 
