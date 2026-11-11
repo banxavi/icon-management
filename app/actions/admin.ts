@@ -31,13 +31,28 @@ async function requireAdmin() {
   return session
 }
 
-async function findUserIdByEmail(email: string): Promise<{ id: string | null; error?: string }> {
+async function findUserIdByEmail(email: string): Promise<{ id: string | null; hasProfile: boolean; error?: string }> {
   const sql = getSql()
-  if (!sql) return { id: null, error: 'Database is not configured.' }
+  if (!sql) return { id: null, hasProfile: false, error: 'Database is not configured.' }
   const rows = await sql`select id from neon_auth."user" where lower(email) = ${email.toLowerCase()} limit 1`
-  if (rows[0]?.id) return { id: String(rows[0].id) }
+  if (rows[0]?.id) {
+    const authId = String(rows[0].id)
+    const profile = await sql`select 1 from public.profiles where id = ${authId}::uuid limit 1`
+    return { id: authId, hasProfile: Boolean(profile[0]) }
+  }
   const profile = await sql`select id from public.profiles where lower(email) = ${email.toLowerCase()} limit 1`
-  return { id: profile[0]?.id ? String(profile[0].id) : null }
+  return { id: profile[0]?.id ? String(profile[0].id) : null, hasProfile: Boolean(profile[0]?.id) }
+}
+
+async function sendInvitePasswordReset(email: string): Promise<string | null> {
+  const reset = await auth.requestPasswordReset({
+    email,
+    redirectTo: `${siteUrl()}/login/update-password`,
+  })
+  if (reset.error) {
+    return reset.error.message || 'unknown error'
+  }
+  return null
 }
 
 async function applyMembership(userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
@@ -95,6 +110,7 @@ export async function importMembers(_prev: AdminResult | null, formData: FormDat
       continue
     }
     let userId = located.id
+    const needsInvite = !userId || !located.hasProfile
     if (!userId) {
       const created = await auth.admin.createUser({
         email: row.email,
@@ -107,13 +123,15 @@ export async function importMembers(_prev: AdminResult | null, formData: FormDat
         continue
       }
       userId = createdUser.id
-      // Invite-style: request password reset so the member sets their own password.
-      const reset = await auth.requestPasswordReset({
-        email: row.email,
-        redirectTo: `${siteUrl()}/login/update-password`,
-      })
-      if (reset.error) {
-        errors.push(`Row ${row.line}: account created but password reset email failed (${reset.error.message || 'unknown error'}).`)
+    }
+    // New auth users and retries for auth-without-profile must (re)send the invite reset.
+    // Never upsert a profile if the reset email failed — that would report success with no way to sign in.
+    if (needsInvite) {
+      const resetError = await sendInvitePasswordReset(row.email)
+      if (resetError) {
+        errors.push(
+          `Row ${row.line}: ${located.hasProfile === false && located.id ? 'auth user exists but ' : ''}password reset email failed (${resetError}). Re-import after fixing email delivery.`,
+        )
         continue
       }
     }
