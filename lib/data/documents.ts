@@ -1,6 +1,6 @@
 import { canAdministerFolders, canManageFolder, type FolderVisibility } from '@/lib/documents/access'
 import { asRole, asStringArray } from '@/lib/data/rows'
-import { createClient } from '@/lib/supabase/server'
+import { getSql } from '@/lib/db'
 import type { AppRole, SessionUser } from '@/lib/types'
 
 export type LibraryFolder = {
@@ -60,34 +60,32 @@ const empty: DocumentLibraryData = {
   allowedExtensions: fallbackExtensions,
 }
 
-function relatedCode(row: unknown): unknown {
-  if (!row || typeof row !== 'object' || !('roles' in row)) return null
-  const roles = (row as { roles?: { code?: string } | { code?: string }[] }).roles
-  return Array.isArray(roles) ? roles[0]?.code : roles?.code
-}
-
 export async function loadDocumentLibrary(session: SessionUser): Promise<DocumentLibraryData> {
-  const supabase = await createClient()
-  if (!supabase) return { ...empty, configured: false }
+  const sql = getSql()
+  if (!sql) return { ...empty, configured: false }
   const canAdminister = canAdministerFolders(session.roles)
 
-  const [{ data: folderRows, error: folderError }, { data: setting }] = await Promise.all([
-    supabase.from('document_folders').select('id, name, visibility, team_id').order('name'),
-    supabase.from('org_settings').select('max_upload_mb, allowed_extensions').limit(1).maybeSingle(),
-  ])
-  if (folderError) {
-    const missing = /document_folders|schema cache|does not exist|42P01/i.test(folderError.message)
+  let folderRows: Record<string, unknown>[] = []
+  let setting: Record<string, unknown> | undefined
+  try {
+    ;[folderRows, setting] = await Promise.all([
+      sql`select id, name, visibility, team_id from public.document_folders order by name`,
+      sql`select max_upload_mb, allowed_extensions from public.org_settings limit 1`.then((rows) => rows[0]),
+    ])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    const missing = /document_folders|schema cache|does not exist|42P01/i.test(message)
     return { ...empty, configured: !missing, loadError: missing ? null : 'Could not load documents.', canAdminister }
   }
 
-  const { data: grantRows } = await supabase.from('document_folder_grants').select('folder_id, user_id, access')
-  const grants: FolderGrant[] = (grantRows ?? []).flatMap((row) => {
+  const grantRows = await sql`select folder_id, user_id, access from public.document_folder_grants`
+  const grants: FolderGrant[] = grantRows.flatMap((row) => {
     const access = row.access === 'manage' ? 'manage' : row.access === 'view' ? 'view' : null
     if (!access) return []
     return [{ folderId: String(row.folder_id), userId: String(row.user_id), access }]
   })
 
-  const folders: LibraryFolder[] = (folderRows ?? []).map((folder) => {
+  const folders: LibraryFolder[] = folderRows.map((folder) => {
     const id = String(folder.id)
     return {
       id,
@@ -102,25 +100,29 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
     }
   })
 
-  const { data: docs } = await supabase
-    .from('documents')
-    .select('id, name, tags, folder_id, updated_at, current_version_id')
-    .not('current_version_id', 'is', null)
-    .order('updated_at', { ascending: false })
-
-  const versionIds = (docs ?? []).map((doc) => String(doc.current_version_id)).filter(Boolean)
-  const { data: versions } = versionIds.length
-    ? await supabase.from('document_versions').select('id, version_label, file_name, created_at, uploaded_by').in('id', versionIds)
-    : { data: [] }
-  const versionById = new Map((versions ?? []).map((version) => [String(version.id), version]))
-  const uploaderIds = [...new Set((versions ?? []).map((version) => String(version.uploaded_by || '')).filter(Boolean))]
-  const { data: uploaders } = uploaderIds.length
-    ? await supabase.from('profiles').select('id, full_name').in('id', uploaderIds)
-    : { data: [] }
-  const uploaderNames = new Map((uploaders ?? []).map((person) => [String(person.id), String(person.full_name)]))
+  const docs = await sql`
+    select id, name, tags, folder_id, updated_at, current_version_id
+    from public.documents
+    where current_version_id is not null
+    order by updated_at desc
+  `
+  const versionIds = docs.map((doc) => String(doc.current_version_id)).filter(Boolean)
+  const versions = versionIds.length
+    ? await sql`
+        select id, version_label, file_name, created_at, uploaded_by
+        from public.document_versions
+        where id = any(${versionIds}::uuid[])
+      `
+    : []
+  const versionById = new Map(versions.map((version) => [String(version.id), version]))
+  const uploaderIds = [...new Set(versions.map((version) => String(version.uploaded_by || '')).filter(Boolean))]
+  const uploaders = uploaderIds.length
+    ? await sql`select id, full_name from public.profiles where id = any(${uploaderIds}::uuid[])`
+    : []
+  const uploaderNames = new Map(uploaders.map((person) => [String(person.id), String(person.full_name)]))
   const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]))
 
-  const documents: LibraryDocument[] = (docs ?? []).map((doc) => {
+  const documents: LibraryDocument[] = docs.map((doc) => {
     const version = versionById.get(String(doc.current_version_id))
     const uploaderId = version ? String(version.uploaded_by || '') : ''
     return {
@@ -138,18 +140,18 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
 
   let people: LibraryPerson[] = []
   if (canAdminister) {
-    const [{ data: profiles }, { data: roleRows }] = await Promise.all([
-      supabase.from('profiles').select('id, full_name').order('full_name'),
-      supabase.from('user_roles').select('user_id, roles(code)'),
+    const [profiles, roleRows] = await Promise.all([
+      sql`select id, full_name from public.profiles order by full_name`,
+      sql`select ur.user_id, r.code from public.user_roles ur join public.roles r on r.id = ur.role_id`,
     ])
     const rolesByUser = new Map<string, AppRole[]>()
-    for (const row of roleRows ?? []) {
-      const code = asRole(relatedCode(row))
+    for (const row of roleRows) {
+      const code = asRole(row.code)
       if (!code) continue
-      const userId = String((row as { user_id: string }).user_id)
+      const userId = String(row.user_id)
       rolesByUser.set(userId, [...(rolesByUser.get(userId) ?? []), code])
     }
-    people = (profiles ?? []).map((person) => ({
+    people = profiles.map((person) => ({
       id: String(person.id),
       fullName: String(person.full_name),
       roles: rolesByUser.get(String(person.id)) ?? [],
@@ -162,7 +164,7 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
     folders,
     documents,
     people,
-    grants: canAdminister ? grants : [],
+    grants,
     canAdminister,
     maxUploadMb: Number(setting?.max_upload_mb ?? 50),
     allowedExtensions: Array.isArray(setting?.allowed_extensions) && setting.allowed_extensions.length > 0

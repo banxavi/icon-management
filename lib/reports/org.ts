@@ -1,6 +1,6 @@
+import { getSql } from '@/lib/db'
 import { DEFAULT_WEEKLY_DEADLINE_TIME, DEFAULT_WEEKLY_DEADLINE_WEEKDAY } from '@/lib/reports/weekly'
 import { REPORT_TIMEZONE } from '@/lib/reports/window'
-import { createClient } from '@/lib/supabase/server'
 
 export type ReportSettings = {
   timeZone: string
@@ -15,13 +15,14 @@ const fallback: ReportSettings = {
 }
 
 export async function loadReportSettings(): Promise<ReportSettings> {
-  const supabase = await createClient()
-  if (!supabase) return fallback
-  const { data } = await supabase
-    .from('org_settings')
-    .select('timezone, weekly_deadline_weekday, weekly_deadline_time')
-    .limit(1)
-    .maybeSingle()
+  const sql = getSql()
+  if (!sql) return fallback
+  const rows = await sql`
+    select timezone, weekly_deadline_weekday, weekly_deadline_time
+    from public.org_settings
+    limit 1
+  `
+  const data = rows[0]
   if (!data) return fallback
   const weekday = Number(data.weekly_deadline_weekday)
   const time = typeof data.weekly_deadline_time === 'string' ? data.weekly_deadline_time : ''

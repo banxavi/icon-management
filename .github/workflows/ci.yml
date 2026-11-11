@@ -10,9 +10,10 @@ permissions:
   contents: read
 env:
   # Dummy PUBLIC values for CI build only. No secrets in CI.
-  NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
   NEXT_PUBLIC_SITE_URL: http://localhost:3000
+  NEXT_PUBLIC_NEON_AUTH_BASE_URL: https://ci-placeholder.neonauth.example/auth
+  NEON_AUTH_BASE_URL: https://ci-placeholder.neonauth.example/auth
+  NEON_AUTH_COOKIE_SECRET: ci-placeholder-cookie-secret-32chars-min
   NEXT_TELEMETRY_DISABLED: 1
 
 jobs:
