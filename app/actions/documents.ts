@@ -2,10 +2,10 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireSession } from '@/lib/auth/session'
-import { canAdministerFolders, canManageFolder } from '@/lib/documents/access'
+import { canAdministerFolders, canManageFolder, canViewFolder } from '@/lib/documents/access'
 import { mapDocumentError } from '@/lib/documents/messages'
 import { parseTags, previewKind, validateDocumentName, validateUpload, type PreviewKind } from '@/lib/documents/rules'
-import { getSql } from '@/lib/db'
+import { getSql, withAuthUid } from '@/lib/db'
 import { messages } from '@/lib/messages'
 
 export type DocumentActionResult = { ok: true; message?: string } | { ok: false; error: string }
@@ -99,22 +99,18 @@ export async function finalizeDocumentUpload(_input: {
 }
 
 export async function abortDocumentUpload(versionId: string): Promise<void> {
-  await requireSession()
-  const sql = getSql()
-  if (!sql) return
+  const session = await requireSession()
   try {
-    await sql`select public.abort_document_version(${versionId}::uuid)`
+    await withAuthUid(session.id, (sql) => sql`select public.abort_document_version(${versionId}::uuid)`)
   } catch {
     // ignore
   }
 }
 
 export async function restoreDocumentVersion(versionId: string): Promise<DocumentActionResult> {
-  await requireSession()
-  const sql = getSql()
-  if (!sql) return { ok: false, error: messages.saveFailed }
+  const session = await requireSession()
   try {
-    await sql`select public.restore_document_version(${versionId}::uuid)`
+    await withAuthUid(session.id, (sql) => sql`select public.restore_document_version(${versionId}::uuid)`)
     refresh()
     return { ok: true, message: messages.documentRestored }
   } catch (error) {
@@ -125,10 +121,11 @@ export async function restoreDocumentVersion(versionId: string): Promise<Documen
 export async function createFolder(formData: FormData): Promise<DocumentActionResult> {
   const session = await requireSession()
   if (!canAdministerFolders(session.roles)) return { ok: false, error: messages.folderForbidden }
-  const sql = getSql()
-  if (!sql) return { ok: false, error: messages.saveFailed }
   try {
-    await sql`select public.create_document_folder(${String(formData.get('name') || '')}, ${String(formData.get('visibility') || 'team')})`
+    await withAuthUid(
+      session.id,
+      (sql) => sql`select public.create_document_folder(${String(formData.get('name') || '')}, ${String(formData.get('visibility') || 'team')})`,
+    )
     refresh()
     return { ok: true, message: messages.folderCreated }
   } catch (error) {
@@ -139,17 +136,18 @@ export async function createFolder(formData: FormData): Promise<DocumentActionRe
 export async function saveFolderAccess(formData: FormData): Promise<DocumentActionResult> {
   const session = await requireSession()
   if (!canAdministerFolders(session.roles)) return { ok: false, error: messages.folderForbidden }
-  const sql = getSql()
-  if (!sql) return { ok: false, error: messages.saveFailed }
   try {
-    await sql`
-      select public.save_folder_access(
-        ${String(formData.get('folderId') || '')}::uuid,
-        ${String(formData.get('visibility') || 'team')},
-        ${formData.getAll('view').map(String)}::uuid[],
-        ${formData.getAll('manage').map(String)}::uuid[]
-      )
-    `
+    await withAuthUid(
+      session.id,
+      (sql) => sql`
+        select public.save_folder_access(
+          ${String(formData.get('folderId') || '')}::uuid,
+          ${String(formData.get('visibility') || 'team')},
+          ${formData.getAll('view').map(String)}::uuid[],
+          ${formData.getAll('manage').map(String)}::uuid[]
+        )
+      `,
+    )
     refresh()
     return { ok: true, message: messages.folderAccessSaved }
   } catch (error) {
@@ -165,7 +163,7 @@ export async function loadDocumentDetail(
   if (!sql) return { ok: false, error: messages.saveFailed }
 
   const docs = await sql`
-    select d.id, d.name, d.tags, d.folder_id, d.current_version_id, f.name as folder_name, f.team_id
+    select d.id, d.name, d.tags, d.folder_id, d.current_version_id, f.name as folder_name, f.team_id, f.visibility
     from public.documents d
     join public.document_folders f on f.id = d.folder_id
     where d.id = ${id}::uuid
@@ -175,10 +173,41 @@ export async function loadDocumentDetail(
   if (!document || !document.folder_id) {
     if (/^[0-9a-f-]{36}$/i.test(id)) {
       try {
-        await sql`select public.audit_access_denied('document', ${id}::uuid, ${JSON.stringify({ path: '/documents' })}::jsonb)`
+        await withAuthUid(
+          session.id,
+          (authSql) => authSql`select public.audit_access_denied('document', ${id}::uuid, ${JSON.stringify({ path: '/documents' })}::jsonb)`,
+        )
       } catch {
         // ignore
       }
+    }
+    return { ok: false, error: messages.documentForbidden }
+  }
+
+  const grantRows = await sql`
+    select access from public.document_folder_grants
+    where folder_id = ${document.folder_id}::uuid and user_id = ${session.id}::uuid
+  `
+  const hasViewGrant = grantRows.some((row) => row.access === 'view')
+  const hasManageGrant = grantRows.some((row) => row.access === 'manage')
+  const sameTeam = Boolean(session.teamId && document.team_id === session.teamId)
+  const visibility = document.visibility === 'restricted' ? 'restricted' as const : 'team' as const
+  const allowed = canViewFolder({
+    roles: session.roles,
+    sameTeam,
+    active: session.status === 'active',
+    visibility,
+    hasViewGrant,
+    hasManageGrant,
+  })
+  if (!allowed) {
+    try {
+      await withAuthUid(
+        session.id,
+        (authSql) => authSql`select public.audit_access_denied('document', ${id}::uuid, ${JSON.stringify({ path: '/documents', reason: 'folder_acl' })}::jsonb)`,
+      )
+    } catch {
+      // ignore
     }
     return { ok: false, error: messages.documentForbidden }
   }
@@ -194,16 +223,11 @@ export async function loadDocumentDetail(
     ? await sql`select id, full_name from public.profiles where id = any(${uploaderIds}::uuid[])`
     : []
   const names = new Map(profiles.map((profile) => [String(profile.id), String(profile.full_name)]))
-  const manageGrant = await sql`
-    select access from public.document_folder_grants
-    where folder_id = ${document.folder_id}::uuid and user_id = ${session.id}::uuid and access = 'manage'
-    limit 1
-  `
   const canManage = canManageFolder({
     roles: session.roles,
-    sameTeam: Boolean(session.teamId && document.team_id === session.teamId),
+    sameTeam,
     active: session.status === 'active',
-    hasManageGrant: manageGrant.length > 0,
+    hasManageGrant,
   })
 
   const views: DocumentVersionView[] = versions.map((version) => {

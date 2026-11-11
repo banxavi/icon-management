@@ -66,6 +66,8 @@ export async function loadHome(session: SessionUser) {
       ? sql`
           select dr.*, p.name as project_name, pr.full_name as author_name
           from public.daily_reports dr
+          join public.reviewer_assignments ra
+            on ra.member_id = dr.user_id and ra.reviewer_id = ${session.id}::uuid
           left join public.projects p on p.id = dr.project_id
           left join public.profiles pr on pr.id = dr.user_id
           where dr.status = 'submitted'

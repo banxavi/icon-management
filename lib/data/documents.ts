@@ -1,4 +1,4 @@
-import { canAdministerFolders, canManageFolder, type FolderVisibility } from '@/lib/documents/access'
+import { canAdministerFolders, canManageFolder, canViewFolder, type FolderVisibility } from '@/lib/documents/access'
 import { asRole, asStringArray } from '@/lib/data/rows'
 import { getSql } from '@/lib/db'
 import type { AppRole, SessionUser } from '@/lib/types'
@@ -85,28 +85,43 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
     return [{ folderId: String(row.folder_id), userId: String(row.user_id), access }]
   })
 
-  const folders: LibraryFolder[] = folderRows.map((folder) => {
+  const folders: LibraryFolder[] = folderRows.flatMap((folder) => {
     const id = String(folder.id)
-    return {
+    const visibility: FolderVisibility = folder.visibility === 'restricted' ? 'restricted' : 'team'
+    const sameTeam = Boolean(session.teamId && folder.team_id === session.teamId)
+    const hasViewGrant = grants.some((grant) => grant.folderId === id && grant.userId === session.id && grant.access === 'view')
+    const hasManageGrant = grants.some((grant) => grant.folderId === id && grant.userId === session.id && grant.access === 'manage')
+    const visible = canViewFolder({
+      roles: session.roles,
+      sameTeam,
+      active: session.status === 'active',
+      visibility,
+      hasViewGrant,
+      hasManageGrant,
+    })
+    if (!visible) return []
+    return [{
       id,
       name: String(folder.name),
-      visibility: folder.visibility === 'restricted' ? 'restricted' : 'team',
+      visibility,
       canManage: canManageFolder({
         roles: session.roles,
-        sameTeam: Boolean(session.teamId && folder.team_id === session.teamId),
+        sameTeam,
         active: session.status === 'active',
-        hasManageGrant: grants.some((grant) => grant.folderId === id && grant.userId === session.id && grant.access === 'manage'),
+        hasManageGrant,
       }),
-    }
+    }]
   })
 
+  const visibleFolderIds = new Set(folders.map((folder) => folder.id))
   const docs = await sql`
     select id, name, tags, folder_id, updated_at, current_version_id
     from public.documents
     where current_version_id is not null
     order by updated_at desc
   `
-  const versionIds = docs.map((doc) => String(doc.current_version_id)).filter(Boolean)
+  const visibleDocs = docs.filter((doc) => visibleFolderIds.has(String(doc.folder_id || '')))
+  const versionIds = visibleDocs.map((doc) => String(doc.current_version_id)).filter(Boolean)
   const versions = versionIds.length
     ? await sql`
         select id, version_label, file_name, created_at, uploaded_by
@@ -122,7 +137,7 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
   const uploaderNames = new Map(uploaders.map((person) => [String(person.id), String(person.full_name)]))
   const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]))
 
-  const documents: LibraryDocument[] = docs.map((doc) => {
+  const documents: LibraryDocument[] = visibleDocs.map((doc) => {
     const version = versionById.get(String(doc.current_version_id))
     const uploaderId = version ? String(version.uploaded_by || '') : ''
     return {
@@ -164,7 +179,7 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
     folders,
     documents,
     people,
-    grants,
+    grants: canAdminister ? grants : [],
     canAdminister,
     maxUploadMb: Number(setting?.max_upload_mb ?? 50),
     allowedExtensions: Array.isArray(setting?.allowed_extensions) && setting.allowed_extensions.length > 0

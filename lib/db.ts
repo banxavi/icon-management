@@ -24,3 +24,21 @@ export async function sqlQuery<T extends Record<string, unknown> = Record<string
   if (!sql) return []
   return (await sql(strings, ...values)) as T[]
 }
+
+/**
+ * Run a query in a transaction with request.jwt.claim.sub / role set so
+ * auth.uid() and auth.role() stubs match the signed-in Neon Auth user.
+ */
+export async function withAuthUid<T extends Record<string, unknown> = Record<string, unknown>>(
+  userId: string,
+  build: (sql: Sql) => ReturnType<Sql>,
+): Promise<T[]> {
+  const sql = getSql()
+  if (!sql) throw new Error('Database is not configured')
+  const results = await sql.transaction((txn) => [
+    txn`select set_config('request.jwt.claim.sub', ${userId}, true)`,
+    txn`select set_config('request.jwt.claim.role', 'authenticated', true)`,
+    build(txn as unknown as Sql),
+  ])
+  return (results[2] ?? []) as T[]
+}

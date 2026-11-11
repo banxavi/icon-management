@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireSession } from '@/lib/auth/session'
 import { canSubmitReport, canViewTeamDashboard } from '@/lib/auth/permissions'
 import { mapReport, mapWeeklyReport } from '@/lib/data/rows'
-import { getSql } from '@/lib/db'
+import { getSql, withAuthUid } from '@/lib/db'
 import { messages } from '@/lib/messages'
 import { mapWriteError } from '@/lib/reports/errors'
 import { loadReportSettings } from '@/lib/reports/org'
@@ -38,11 +38,12 @@ function refresh() {
   revalidatePath('/notifications')
 }
 
-async function auditDenied(objectType: string, metadata: Record<string, unknown>) {
-  const sql = getSql()
-  if (!sql) return
+async function auditDenied(actorId: string, objectType: string, metadata: Record<string, unknown>) {
   try {
-    await sql`select public.audit_access_denied(${objectType}, null, ${JSON.stringify(metadata)}::jsonb)`
+    await withAuthUid(
+      actorId,
+      (sql) => sql`select public.audit_access_denied(${objectType}, null, ${JSON.stringify(metadata)}::jsonb)`,
+    )
   } catch {
     // Best-effort.
   }
@@ -66,7 +67,7 @@ export async function loadOwnReport(reportDate: string): Promise<DailyReportReco
 export async function saveDailyReport(input: ReportInput): Promise<SaveResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    await auditDenied('daily_report', { path: '/reports/daily/new', reason: 'role_cannot_submit' })
+    await auditDenied(session.id, 'daily_report', { path: '/reports/daily/new', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 
@@ -125,7 +126,7 @@ export async function saveDailyReport(input: ReportInput): Promise<SaveResult> {
 
     if (normalized.intent === 'submit') {
       try {
-        await sql`select public.notify_daily_report(${data.id}::uuid)`
+        await withAuthUid(session.id, (authSql) => authSql`select public.notify_daily_report(${data.id}::uuid)`)
       } catch {
         refresh()
         return { ok: false, error: 'The report was saved, but the in-app notification could not be sent.', report: mapped }
@@ -146,7 +147,7 @@ export async function saveDailyReport(input: ReportInput): Promise<SaveResult> {
 export async function loadTeamBoard(reportDate: string) {
   const session = await requireSession()
   if (!canViewTeamDashboard(session.roles)) {
-    await auditDenied('page', { path: '/team/dashboard' })
+    await auditDenied(session.id, 'page', { path: '/team/dashboard' })
     return { forbidden: true as const, reportDate, rows: [], projects: [] as { id: string; name: string }[] }
   }
   const sql = getSql()
@@ -230,7 +231,7 @@ function refreshWeekly() {
 export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    await auditDenied('weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
+    await auditDenied(session.id, 'weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 
@@ -277,7 +278,7 @@ export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadR
 export async function saveWeeklyReport(input: WeeklyInput): Promise<WeeklySaveResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    await auditDenied('weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
+    await auditDenied(session.id, 'weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 

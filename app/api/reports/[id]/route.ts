@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { isIdle } from '@/lib/auth/lockout'
 import { auth, authReady } from '@/lib/auth/server'
-import { getSql } from '@/lib/db'
+import { getSql, withAuthUid } from '@/lib/db'
 import { messages } from '@/lib/messages'
 
 type Lookup = { status?: string; report?: Record<string, unknown> }
@@ -26,7 +26,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    const rows = await sql`select public.get_daily_report(${id}::uuid) as payload`
+    const rows = await withAuthUid<{ payload: Lookup }>(
+      user.id,
+      (authSql) => authSql`select public.get_daily_report(${id}::uuid) as payload`,
+    )
     const lookup = (rows[0]?.payload ?? {}) as Lookup
     if (lookup.status === 'not_found') return NextResponse.json({ error: messages.reportNotFound }, { status: 404 })
     if (lookup.status === 'forbidden' || lookup.status === 'unauthenticated') {

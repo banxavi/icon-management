@@ -8,7 +8,7 @@ import { clientIp } from '@/lib/auth/request'
 import { requireSession } from '@/lib/auth/session'
 import { auth, authReady } from '@/lib/auth/server'
 import { TEAM_ID } from '@/lib/constants'
-import { getSql } from '@/lib/db'
+import { getSql, withAuthUid } from '@/lib/db'
 import { siteUrl } from '@/lib/env'
 import { messages } from '@/lib/messages'
 import type { AppRole } from '@/lib/types'
@@ -18,13 +18,13 @@ export type AdminResult = { ok: true; message: string } | { ok: false; errors: s
 async function requireAdmin() {
   const session = await requireSession()
   if (!session.roles.includes('admin')) {
-    const sql = getSql()
-    if (sql) {
-      try {
-        await sql`select public.audit_access_denied('page', null, ${JSON.stringify({ path: '/admin' })}::jsonb)`
-      } catch {
-        // ignore
-      }
+    try {
+      await withAuthUid(
+        session.id,
+        (sql) => sql`select public.audit_access_denied('page', null, ${JSON.stringify({ path: '/admin' })}::jsonb)`,
+      )
+    } catch {
+      // ignore
     }
     return null
   }
@@ -108,10 +108,14 @@ export async function importMembers(_prev: AdminResult | null, formData: FormDat
       }
       userId = createdUser.id
       // Invite-style: request password reset so the member sets their own password.
-      await auth.requestPasswordReset({
+      const reset = await auth.requestPasswordReset({
         email: row.email,
         redirectTo: `${siteUrl()}/login/update-password`,
-      }).catch(() => null)
+      })
+      if (reset.error) {
+        errors.push(`Row ${row.line}: account created but password reset email failed (${reset.error.message || 'unknown error'}).`)
+        continue
+      }
     }
     try {
       await sql`
