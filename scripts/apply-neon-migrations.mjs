@@ -26,7 +26,8 @@ if (!url) {
   process.exit(1)
 }
 
-const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } })
+// Rely on connection-string SSL (Neon includes sslmode). Do not disable cert verification.
+const client = new pg.Client({ connectionString: url })
 await client.connect()
 for (const rel of files) {
   const sql = fs.readFileSync(path.join(root, rel), 'utf8')

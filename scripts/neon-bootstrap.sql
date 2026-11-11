@@ -25,12 +25,14 @@ as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
 $$;
 
+-- Match Supabase: missing JWT role is null (DB owner / service path), not 'authenticated'.
+-- protect_profile_fields only freezes HR fields when auth.role() = 'authenticated'.
 create or replace function auth.role()
 returns text
 language sql
 stable
 as $$
-  select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), 'authenticated');
+  select nullif(current_setting('request.jwt.claim.role', true), '');
 $$;
 
 create table if not exists storage.buckets (
