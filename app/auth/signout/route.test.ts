@@ -1,23 +1,26 @@
 import { NextRequest } from 'next/server'
-import { describe, expect, it } from 'vitest'
-import { POST } from '@/app/auth/signout/route'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/lib/auth/server', () => ({
+  authReady: () => true,
+  auth: {
+    signOut: vi.fn(async () => ({ data: null, error: null })),
+  },
+}))
 
 describe('POST /auth/signout', () => {
-  it('clears session cookies and redirects to /login', async () => {
-    const request = new NextRequest('http://localhost:3000/auth/signout', {
-      method: 'POST',
-      headers: {
-        cookie: 'sb-abc-auth-token.0=session; sb-abc-auth-token.1=chunk; theme=light',
-      },
-    })
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('redirects to /login after signing out', async () => {
+    const { POST } = await import('@/app/auth/signout/route')
+    const { auth } = await import('@/lib/auth/server')
+    const request = new NextRequest('http://localhost:3000/auth/signout', { method: 'POST' })
     const response = await POST(request)
+    expect(auth.signOut).toHaveBeenCalled()
     expect(response.status).toBe(303)
     expect(response.headers.get('location')).toBe('http://localhost:3000/login')
-    const setCookies = response.headers.getSetCookie()
-    const joined = setCookies.join('\n')
-    expect(setCookies.some((cookie) => cookie.startsWith('sb-abc-auth-token.0=') && cookie.includes('Max-Age=0'))).toBe(true)
-    expect(setCookies.some((cookie) => cookie.startsWith('sb-abc-auth-token.1=') && cookie.includes('Max-Age=0'))).toBe(true)
-    expect(joined).toContain('Secure')
-    expect(joined).not.toContain('theme=')
+    expect(response.headers.get('cache-control')).toContain('no-store')
   })
 })

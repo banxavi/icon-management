@@ -4,19 +4,21 @@ import { Forbidden } from '@/components/forbidden'
 import { TeamDashboard } from '@/components/team-dashboard'
 import { loadTeamBoard } from '@/app/actions/reports'
 import { calendarDateInZone } from '@/lib/reports/window'
-import { createClient } from '@/lib/supabase/server'
+import { withAuthUid } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
 export default async function TeamDashboardPage() {
   const session = await requireSession()
   if (!canViewTeamDashboard(session.roles)) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'page',
-      p_object_id: null,
-      p_metadata: { path: '/team/dashboard' },
-    })
+    try {
+      await withAuthUid(
+        session.id,
+        (sql) => sql`select public.audit_access_denied('page', null, ${JSON.stringify({ path: '/team/dashboard' })}::jsonb)`,
+      )
+    } catch {
+      // ignore
+    }
     return <Forbidden />
   }
   const today = calendarDateInZone(new Date())

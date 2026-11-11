@@ -1,5 +1,7 @@
 # ICON Team 1 Portal
 
+
+Auth and app data now target **Neon Managed Better Auth** + **Neon Postgres** (`DATABASE_URL`, `NEON_AUTH_*`). Local: `neon env pull`, then `SEED_PASSWORD=… pnpm seed:neon`. Document file blobs still need Object Storage (follow-up).
 English internal portal for ICON Team 1. Sign-in is Supabase email and password. Daily reports, weekly reports, WFH declarations, in-app notifications, the team leader dashboard, the member directory, organization settings, and the document library use Supabase. Requests, announcements, the team calendar, report history, and team weekly export stay sample screens.
 
 Environment setup, including the dev project `egylwfpxaxqqlmselygj`, is in [DEPLOY.md](DEPLOY.md). Copy `.env.example` to `.env.local` and fill keys from the dashboard. Never commit secrets.

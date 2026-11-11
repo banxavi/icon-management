@@ -4,9 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, Folder, Search } from 'lucide-react'
 import {
-  abortDocumentUpload,
   createFolder,
-  finalizeDocumentUpload,
   loadDocumentDetail,
   prepareDocumentUpload,
   restoreDocumentVersion,
@@ -22,7 +20,6 @@ import type { FolderGrant, LibraryDocument, LibraryFolder, LibraryPerson } from 
 import { acceptAttribute } from '@/lib/documents/rules'
 import { roleLabel } from '@/lib/auth/permissions'
 import { messages } from '@/lib/messages'
-import { createBrowserSupabase } from '@/lib/supabase/client'
 
 function formatWhen(value: string) {
   if (!value) return ''
@@ -89,32 +86,10 @@ export function DocumentsLibrary({
       setError(prepared.error)
       return false
     }
-    const browser = createBrowserSupabase()
-    if (!browser) {
-      await abortDocumentUpload(prepared.versionId)
-      setPending(false)
-      setError(messages.uploadUnavailable)
-      return false
-    }
-    const uploaded = await browser.storage.from('documents').uploadToSignedUrl(prepared.path, prepared.token, file, {
-      contentType: file.type || undefined,
-    })
-    if (uploaded.error) {
-      await abortDocumentUpload(prepared.versionId)
-      setPending(false)
-      setError(messages.uploadMissing)
-      return false
-    }
-    const saved = await finalizeDocumentUpload({ versionId: prepared.versionId, name, tags })
+    // File blob storage is not on Neon yet; prepareDocumentUpload returns an error.
     setPending(false)
-    if (!saved.ok) {
-      await abortDocumentUpload(prepared.versionId)
-      setError(saved.error)
-      return false
-    }
-    setMessage(saved.message || messages.documentSaved)
-    router.refresh()
-    return true
+    setError('Document file storage is not on Neon yet.')
+    return false
   }
 
   async function openDocument(id: string) {

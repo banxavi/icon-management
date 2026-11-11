@@ -2,11 +2,11 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireSession } from '@/lib/auth/session'
-import { canAdministerFolders, canManageFolder } from '@/lib/documents/access'
+import { canAdministerFolders, canManageFolder, canViewFolder } from '@/lib/documents/access'
 import { mapDocumentError } from '@/lib/documents/messages'
 import { parseTags, previewKind, validateDocumentName, validateUpload, type PreviewKind } from '@/lib/documents/rules'
+import { getSql, withAuthUid } from '@/lib/db'
 import { messages } from '@/lib/messages'
-import { createClient } from '@/lib/supabase/server'
 
 export type DocumentActionResult = { ok: true; message?: string } | { ok: false; error: string }
 
@@ -42,20 +42,24 @@ export type DocumentDetail = {
   versions: DocumentVersionView[]
 }
 
-const MARKDOWN_PREVIEW_LIMIT = 200_000
-
 function refresh() {
   revalidatePath('/documents')
 }
 
+const STORAGE_UNAVAILABLE =
+  'Document file storage is not on Neon yet. Metadata works; uploads/downloads need Neon Object Storage (follow-up).'
+
 async function uploadLimits() {
-  const supabase = await createClient()
-  if (!supabase) return null
-  const { data } = await supabase.from('org_settings').select('max_upload_mb, allowed_extensions').limit(1).maybeSingle()
+  const sql = getSql()
+  if (!sql) return null
+  const rows = await sql`select max_upload_mb, allowed_extensions from public.org_settings limit 1`
+  const data = rows[0]
   return {
-    supabase,
+    sql,
     maxUploadMb: Number(data?.max_upload_mb ?? 50),
-    allowedExtensions: Array.isArray(data?.allowed_extensions) ? data.allowed_extensions.map(String) : ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
+    allowedExtensions: Array.isArray(data?.allowed_extensions)
+      ? data.allowed_extensions.map(String)
+      : ['pdf', 'docx', 'xlsx', 'pptx', 'md', 'png', 'jpg'],
   }
 }
 
@@ -82,179 +86,166 @@ export async function prepareDocumentUpload(input: {
     maxUploadMb: limits.maxUploadMb,
   })
   if (!file.ok) return { ok: false, error: mapDocumentError(file.code) }
-
-  const { data, error } = await limits.supabase.rpc('begin_document_version', {
-    p_document_id: input.documentId,
-    p_folder_id: input.folderId,
-    p_name: input.name.trim(),
-    p_tags: tags.tags,
-    p_file_name: input.fileName,
-    p_byte_size: input.byteSize,
-    p_mime: input.mimeType,
-  })
-  if (error || !data) return { ok: false, error: mapDocumentError(error?.message ?? '') }
-  const payload = data as { documentId?: string; versionId?: string; path?: string }
-  if (!payload.documentId || !payload.versionId || !payload.path) return { ok: false, error: messages.saveFailed }
-
-  const signed = await limits.supabase.storage.from('documents').createSignedUploadUrl(payload.path)
-  if (signed.error || !signed.data?.token) {
-    await limits.supabase.rpc('abort_document_version', { p_version_id: payload.versionId })
-    return { ok: false, error: messages.uploadUnavailable }
-  }
-  return {
-    ok: true,
-    documentId: payload.documentId,
-    versionId: payload.versionId,
-    path: payload.path,
-    token: signed.data.token,
-  }
+  return { ok: false, error: STORAGE_UNAVAILABLE }
 }
 
-export async function finalizeDocumentUpload(input: {
+export async function finalizeDocumentUpload(_input: {
   versionId: string
   name: string
   tags: string
 }): Promise<DocumentActionResult> {
   await requireSession()
-  const tags = parseTags(input.tags)
-  if (!tags.ok) return { ok: false, error: tags.error }
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
-  const { error } = await supabase.rpc('finalize_document_version', {
-    p_version_id: input.versionId,
-    p_name: input.name.trim(),
-    p_tags: tags.tags,
-  })
-  if (error) return { ok: false, error: mapDocumentError(error.message) }
-  refresh()
-  return { ok: true, message: messages.documentSaved }
+  return { ok: false, error: STORAGE_UNAVAILABLE }
 }
 
 export async function abortDocumentUpload(versionId: string): Promise<void> {
-  await requireSession()
-  const supabase = await createClient()
-  if (!supabase) return
-  await supabase.rpc('abort_document_version', { p_version_id: versionId })
+  const session = await requireSession()
+  try {
+    await withAuthUid(session.id, (sql) => sql`select public.abort_document_version(${versionId}::uuid)`)
+  } catch {
+    // ignore
+  }
 }
 
 export async function restoreDocumentVersion(versionId: string): Promise<DocumentActionResult> {
-  await requireSession()
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
-  const { error } = await supabase.rpc('restore_document_version', { p_version_id: versionId })
-  if (error) return { ok: false, error: mapDocumentError(error.message) }
-  refresh()
-  return { ok: true, message: messages.documentRestored }
+  const session = await requireSession()
+  try {
+    await withAuthUid(session.id, (sql) => sql`select public.restore_document_version(${versionId}::uuid)`)
+    refresh()
+    return { ok: true, message: messages.documentRestored }
+  } catch (error) {
+    return { ok: false, error: mapDocumentError(error instanceof Error ? error.message : messages.saveFailed) }
+  }
 }
 
 export async function createFolder(formData: FormData): Promise<DocumentActionResult> {
   const session = await requireSession()
   if (!canAdministerFolders(session.roles)) return { ok: false, error: messages.folderForbidden }
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
-  const { error } = await supabase.rpc('create_document_folder', {
-    p_name: String(formData.get('name') || ''),
-    p_visibility: String(formData.get('visibility') || 'team'),
-  })
-  if (error) return { ok: false, error: mapDocumentError(error.message) }
-  refresh()
-  return { ok: true, message: messages.folderCreated }
+  try {
+    await withAuthUid(
+      session.id,
+      (sql) => sql`select public.create_document_folder(${String(formData.get('name') || '')}, ${String(formData.get('visibility') || 'team')})`,
+    )
+    refresh()
+    return { ok: true, message: messages.folderCreated }
+  } catch (error) {
+    return { ok: false, error: mapDocumentError(error instanceof Error ? error.message : messages.saveFailed) }
+  }
 }
 
 export async function saveFolderAccess(formData: FormData): Promise<DocumentActionResult> {
   const session = await requireSession()
   if (!canAdministerFolders(session.roles)) return { ok: false, error: messages.folderForbidden }
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
-  const { error } = await supabase.rpc('save_folder_access', {
-    p_folder: String(formData.get('folderId') || ''),
-    p_visibility: String(formData.get('visibility') || 'team'),
-    p_view: formData.getAll('view').map(String),
-    p_manage: formData.getAll('manage').map(String),
-  })
-  if (error) return { ok: false, error: mapDocumentError(error.message) }
-  refresh()
-  return { ok: true, message: messages.folderAccessSaved }
+  try {
+    await withAuthUid(
+      session.id,
+      (sql) => sql`
+        select public.save_folder_access(
+          ${String(formData.get('folderId') || '')}::uuid,
+          ${String(formData.get('visibility') || 'team')},
+          ${formData.getAll('view').map(String)}::uuid[],
+          ${formData.getAll('manage').map(String)}::uuid[]
+        )
+      `,
+    )
+    refresh()
+    return { ok: true, message: messages.folderAccessSaved }
+  } catch (error) {
+    return { ok: false, error: mapDocumentError(error instanceof Error ? error.message : messages.saveFailed) }
+  }
 }
 
-export async function loadDocumentDetail(id: string): Promise<{ ok: true; detail: DocumentDetail } | { ok: false; error: string }> {
+export async function loadDocumentDetail(
+  id: string,
+): Promise<{ ok: true; detail: DocumentDetail } | { ok: false; error: string }> {
   const session = await requireSession()
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
+  const sql = getSql()
+  if (!sql) return { ok: false, error: messages.saveFailed }
 
-  const { data: document } = await supabase
-    .from('documents')
-    .select('id, name, tags, folder_id, current_version_id, document_folders(name)')
-    .eq('id', id)
-    .maybeSingle()
+  const docs = await sql`
+    select d.id, d.name, d.tags, d.folder_id, d.current_version_id, f.name as folder_name, f.team_id, f.visibility
+    from public.documents d
+    join public.document_folders f on f.id = d.folder_id
+    where d.id = ${id}::uuid
+    limit 1
+  `
+  const document = docs[0]
   if (!document || !document.folder_id) {
     if (/^[0-9a-f-]{36}$/i.test(id)) {
-      await supabase.rpc('audit_access_denied', {
-        p_object_type: 'document',
-        p_object_id: id,
-        p_metadata: { path: '/documents' },
-      })
+      try {
+        await withAuthUid(
+          session.id,
+          (authSql) => authSql`select public.audit_access_denied('document', ${id}::uuid, ${JSON.stringify({ path: '/documents' })}::jsonb)`,
+        )
+      } catch {
+        // ignore
+      }
     }
     return { ok: false, error: messages.documentForbidden }
   }
 
-  const { data: versions } = await supabase
-    .from('document_versions')
-    .select('id, version_label, file_name, byte_size, created_at, uploaded_by, storage_path, restored_from')
-    .eq('document_id', id)
-    .eq('ready', true)
-    .order('version_number', { ascending: false })
+  const grantRows = await sql`
+    select access from public.document_folder_grants
+    where folder_id = ${document.folder_id}::uuid and user_id = ${session.id}::uuid
+  `
+  const hasViewGrant = grantRows.some((row) => row.access === 'view')
+  const hasManageGrant = grantRows.some((row) => row.access === 'manage')
+  const sameTeam = Boolean(session.teamId && document.team_id === session.teamId)
+  const visibility = document.visibility === 'restricted' ? 'restricted' as const : 'team' as const
+  const allowed = canViewFolder({
+    roles: session.roles,
+    sameTeam,
+    active: session.status === 'active',
+    visibility,
+    hasViewGrant,
+    hasManageGrant,
+  })
+  if (!allowed) {
+    try {
+      await withAuthUid(
+        session.id,
+        (authSql) => authSql`select public.audit_access_denied('document', ${id}::uuid, ${JSON.stringify({ path: '/documents', reason: 'folder_acl' })}::jsonb)`,
+      )
+    } catch {
+      // ignore
+    }
+    return { ok: false, error: messages.documentForbidden }
+  }
 
-  const uploaderIds = [...new Set((versions ?? []).map((version) => String(version.uploaded_by || '')).filter(Boolean))]
-  const { data: profiles } = uploaderIds.length
-    ? await supabase.from('profiles').select('id, full_name').in('id', uploaderIds)
-    : { data: [] }
-  const names = new Map((profiles ?? []).map((profile) => [String(profile.id), String(profile.full_name)]))
-
-  const { data: manageGrant } = await supabase
-    .from('document_folder_grants')
-    .select('access')
-    .eq('folder_id', document.folder_id)
-    .eq('user_id', session.id)
-    .eq('access', 'manage')
-    .maybeSingle()
-  const { data: folder } = await supabase.from('document_folders').select('team_id').eq('id', document.folder_id).maybeSingle()
+  const versions = await sql`
+    select id, version_label, file_name, byte_size, created_at, uploaded_by, storage_path, restored_from
+    from public.document_versions
+    where document_id = ${id}::uuid and ready = true
+    order by version_number desc
+  `
+  const uploaderIds = [...new Set(versions.map((version) => String(version.uploaded_by || '')).filter(Boolean))]
+  const profiles = uploaderIds.length
+    ? await sql`select id, full_name from public.profiles where id = any(${uploaderIds}::uuid[])`
+    : []
+  const names = new Map(profiles.map((profile) => [String(profile.id), String(profile.full_name)]))
   const canManage = canManageFolder({
     roles: session.roles,
-    sameTeam: Boolean(session.teamId && folder?.team_id === session.teamId),
+    sameTeam,
     active: session.status === 'active',
-    hasManageGrant: Boolean(manageGrant),
+    hasManageGrant,
   })
 
-  const folderRelation = document.document_folders as { name?: string } | { name?: string }[] | null
-  const folderName = Array.isArray(folderRelation) ? folderRelation[0]?.name : folderRelation?.name
-
-  const views: DocumentVersionView[] = []
-  for (const version of versions ?? []) {
+  const views: DocumentVersionView[] = versions.map((version) => {
     const fileName = String(version.file_name || 'file')
-    const kind = previewKind(fileName)
-    const path = String(version.storage_path || '')
-    const signed = path ? await supabase.storage.from('documents').createSignedUrl(path, 600) : { data: null }
-    let textPreview: string | null = null
-    const current = String(version.id) === String(document.current_version_id)
-    if (current && kind === 'markdown' && Number(version.byte_size || 0) <= MARKDOWN_PREVIEW_LIMIT && path) {
-      const downloaded = await supabase.storage.from('documents').download(path)
-      if (downloaded.data) textPreview = await downloaded.data.text()
-    }
-    views.push({
+    return {
       id: String(version.id),
       label: String(version.version_label || ''),
       fileName,
       createdAt: String(version.created_at),
       uploader: names.get(String(version.uploaded_by)) || 'Member',
       byteSize: Number(version.byte_size || 0),
-      previewKind: kind,
-      signedUrl: signed.data?.signedUrl ?? null,
-      textPreview,
+      previewKind: previewKind(fileName),
+      signedUrl: null,
+      textPreview: null,
       restored: Boolean(version.restored_from),
-      current,
-    })
-  }
+      current: String(version.id) === String(document.current_version_id),
+    }
+  })
 
   return {
     ok: true,
@@ -263,7 +254,7 @@ export async function loadDocumentDetail(id: string): Promise<{ ok: true; detail
       name: String(document.name),
       tags: Array.isArray(document.tags) ? document.tags.map(String) : [],
       folderId: String(document.folder_id),
-      folderName: folderName || 'Folder',
+      folderName: String(document.folder_name || 'Folder'),
       canManage,
       versions: views,
     },

@@ -3,7 +3,11 @@
 Stack: Next.js (App Router) · TypeScript · Tailwind · shadcn/ui · Supabase · Vercel (Free) · pnpm@12.3.4 · Node 22.
 Secrets live **only** in Vercel / Supabase dashboards (and GitHub Actions secrets for backups). Never in git or chat.
 
-## 1. Environment matrix
+
+## Neon Auth + Postgres (current)
+Local/staging secrets: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL`, `NEON_AUTH_COOKIE_SECRET`, `NEXT_PUBLIC_NEON_AUTH_BASE_URL`, `NEXT_PUBLIC_SITE_URL`. Pull with `neon env pull` after `neon deploy`. Seed: `SEED_PASSWORD='IconSeed-Test-2026!' pnpm seed:neon` (shell only). Trusted domains: `neon neon-auth domain list`. Password hashes do not migrate from Supabase.
+
+## 1. Environment matrix (legacy Supabase matrix below; prefer Neon vars above)
 
 | | dev | staging | prod |
 |---|---|---|---|

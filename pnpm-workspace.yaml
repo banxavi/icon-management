@@ -3,3 +3,7 @@ pmOnFail: ignore
 minimumReleaseAgeExclude:
   - '@next/*'
   - next
+
+# core-js postinstall is unused here; declare ignore so CI does not fail ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  core-js: false

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireSession } from '@/lib/auth/session'
 import { canSubmitReport, canViewTeamDashboard } from '@/lib/auth/permissions'
 import { mapReport, mapWeeklyReport } from '@/lib/data/rows'
+import { getSql, withAuthUid } from '@/lib/db'
 import { messages } from '@/lib/messages'
 import { mapWriteError } from '@/lib/reports/errors'
 import { loadReportSettings } from '@/lib/reports/org'
@@ -20,7 +21,6 @@ import {
   weeklyDeadlineLabel,
   type WeeklyInput,
 } from '@/lib/reports/weekly'
-import { createClient } from '@/lib/supabase/server'
 import type { DailyReportRecord, WeeklyReportRecord } from '@/lib/types'
 
 export type SaveResult = {
@@ -38,28 +38,36 @@ function refresh() {
   revalidatePath('/notifications')
 }
 
+async function auditDenied(actorId: string, objectType: string, metadata: Record<string, unknown>) {
+  try {
+    await withAuthUid(
+      actorId,
+      (sql) => sql`select public.audit_access_denied(${objectType}, null, ${JSON.stringify(metadata)}::jsonb)`,
+    )
+  } catch {
+    // Best-effort.
+  }
+}
+
 export async function loadOwnReport(reportDate: string): Promise<DailyReportRecord | null> {
   const session = await requireSession()
-  const supabase = await createClient()
-  if (!supabase) return null
-  const { data } = await supabase
-    .from('daily_reports')
-    .select('*, projects(name)')
-    .eq('user_id', session.id)
-    .eq('report_date', reportDate)
-    .maybeSingle()
-  return data ? mapReport(data as Record<string, unknown>) : null
+  const sql = getSql()
+  if (!sql) return null
+  const rows = await sql`
+    select dr.*, p.name as project_name
+    from public.daily_reports dr
+    left join public.projects p on p.id = dr.project_id
+    where dr.user_id = ${session.id}::uuid and dr.report_date = ${reportDate}::date
+    limit 1
+  `
+  const data = rows[0]
+  return data ? mapReport({ ...data, projects: { name: data.project_name } }) : null
 }
 
 export async function saveDailyReport(input: ReportInput): Promise<SaveResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'daily_report',
-      p_object_id: null,
-      p_metadata: { path: '/reports/daily/new', reason: 'role_cannot_submit' },
-    })
+    await auditDenied(session.id, 'daily_report', { path: '/reports/daily/new', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 
@@ -75,89 +83,105 @@ export async function saveDailyReport(input: ReportInput): Promise<SaveResult> {
     return { ok: false, error: Object.values(fieldErrors)[0], fieldErrors }
   }
 
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
+  const sql = getSql()
+  if (!sql) return { ok: false, error: messages.saveFailed }
 
-  const { data: existing } = await supabase
-    .from('daily_reports')
-    .select('status')
-    .eq('user_id', session.id)
-    .eq('report_date', normalized.reportDate)
-    .maybeSingle()
-
+  const existingRows = await sql`
+    select status from public.daily_reports
+    where user_id = ${session.id}::uuid and report_date = ${normalized.reportDate}::date
+    limit 1
+  `
+  const existing = existingRows[0]
   const status = normalized.intent === 'submit' || existing?.status === 'submitted' ? 'submitted' : 'draft'
-  const { data, error } = await supabase
-    .from('daily_reports')
-    .upsert(
-      {
-        user_id: session.id,
-        report_date: normalized.reportDate,
-        project_id: normalized.projectId,
-        work_status: normalized.workStatus,
-        wfh_reason: normalized.workStatus === 'wfh' ? normalized.wfhReason.trim() : null,
-        done_today: normalized.doneToday,
-        next_plan: normalized.nextPlan,
-        blockers: normalized.blockers.trim() || null,
-        status,
-      },
-      { onConflict: 'user_id,report_date' },
-    )
-    .select('*, projects(name)')
-    .single()
+  try {
+    const rows = await sql`
+      insert into public.daily_reports (
+        user_id, report_date, project_id, work_status, wfh_reason, done_today, next_plan, blockers, status
+      ) values (
+        ${session.id}::uuid,
+        ${normalized.reportDate}::date,
+        ${normalized.projectId}::uuid,
+        ${normalized.workStatus},
+        ${normalized.workStatus === 'wfh' ? normalized.wfhReason.trim() : null},
+        ${normalized.doneToday},
+        ${normalized.nextPlan},
+        ${normalized.blockers.trim() || null},
+        ${status}
+      )
+      on conflict (user_id, report_date) do update set
+        project_id = excluded.project_id,
+        work_status = excluded.work_status,
+        wfh_reason = excluded.wfh_reason,
+        done_today = excluded.done_today,
+        next_plan = excluded.next_plan,
+        blockers = excluded.blockers,
+        status = excluded.status,
+        updated_at = now()
+      returning *
+    `
+    const data = rows[0]
+    if (!data) return { ok: false, error: messages.saveFailed }
+    const projectRows = await sql`select name from public.projects where id = ${data.project_id}::uuid limit 1`
+    const mapped = mapReport({ ...data, projects: { name: projectRows[0]?.name } })
 
-  if (error || !data) return { ok: false, error: mapWriteError(error?.message ?? '') }
-
-  if (normalized.intent === 'submit') {
-    const { error: notifyError } = await supabase.rpc('notify_daily_report', { p_id: data.id })
-    if (notifyError) {
-      refresh()
-      return { ok: false, error: 'The report was saved, but the in-app notification could not be sent.', report: mapReport(data as Record<string, unknown>) }
+    if (normalized.intent === 'submit') {
+      try {
+        await withAuthUid(session.id, (authSql) => authSql`select public.notify_daily_report(${data.id}::uuid)`)
+      } catch {
+        refresh()
+        return { ok: false, error: 'The report was saved, but the in-app notification could not be sent.', report: mapped }
+      }
     }
-  }
 
-  refresh()
-  const report = mapReport(data as Record<string, unknown>)
-  return {
-    ok: true,
-    report,
-    message: normalized.intent === 'draft' ? messages.savedDraft : existing?.status === 'submitted' ? messages.updated : messages.submitted,
+    refresh()
+    return {
+      ok: true,
+      report: mapped,
+      message: normalized.intent === 'draft' ? messages.savedDraft : existing?.status === 'submitted' ? messages.updated : messages.submitted,
+    }
+  } catch (error) {
+    return { ok: false, error: mapWriteError(error instanceof Error ? error.message : '') }
   }
 }
 
 export async function loadTeamBoard(reportDate: string) {
   const session = await requireSession()
   if (!canViewTeamDashboard(session.roles)) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'page',
-      p_object_id: null,
-      p_metadata: { path: '/team/dashboard' },
-    })
+    await auditDenied(session.id, 'page', { path: '/team/dashboard' })
     return { forbidden: true as const, reportDate, rows: [], projects: [] as { id: string; name: string }[] }
   }
-  const supabase = await createClient()
-  if (!supabase || !session.teamId) {
+  const sql = getSql()
+  if (!sql || !session.teamId) {
     return { forbidden: false as const, reportDate, rows: [], projects: [] as { id: string; name: string }[] }
   }
 
-  const [{ data: people }, { data: reports }, { data: projects }, { data: memberships }] = await Promise.all([
-    supabase.from('profiles').select('id, full_name, email').eq('team_id', session.teamId).order('full_name'),
-    supabase.from('daily_reports').select('*, projects(name)').eq('report_date', reportDate),
-    supabase.from('projects').select('id, name').eq('team_id', session.teamId).order('name'),
-    supabase.from('project_members').select('user_id, project_id, projects(name)'),
+  const [people, reports, projects, memberships] = await Promise.all([
+    sql`select id, full_name, email from public.profiles where team_id = ${session.teamId}::uuid order by full_name`,
+    sql`
+      select dr.*, p.name as project_name
+      from public.daily_reports dr
+      left join public.projects p on p.id = dr.project_id
+      where dr.report_date = ${reportDate}::date
+    `,
+    sql`select id, name from public.projects where team_id = ${session.teamId}::uuid order by name`,
+    sql`
+      select pm.user_id, pm.project_id, p.name as project_name
+      from public.project_members pm
+      join public.projects p on p.id = pm.project_id
+    `,
   ])
 
-  const reportByUser = new Map((reports ?? []).map((row) => [String((row as { user_id: string }).user_id), mapReport(row as Record<string, unknown>)]))
+  const reportByUser = new Map(reports.map((row) => [String(row.user_id), mapReport({ ...row, projects: { name: row.project_name } })]))
   const projectsByUser = new Map<string, string[]>()
-  for (const membership of memberships ?? []) {
-    const userId = String((membership as { user_id: string }).user_id)
-    const name = relatedProject(membership)
+  for (const membership of memberships) {
+    const userId = String(membership.user_id)
+    const name = String(membership.project_name || '')
     const list = projectsByUser.get(userId) ?? []
     if (name) list.push(name)
     projectsByUser.set(userId, list)
   }
 
-  const rows = (people ?? []).map((person) => {
+  const rows = people.map((person) => {
     const report = reportByUser.get(String(person.id)) ?? null
     const status: 'submitted' | 'not_submitted' | 'late' = !report || report.status !== 'submitted' ? 'not_submitted' : report.isLate ? 'late' : 'submitted'
     return {
@@ -174,20 +198,8 @@ export async function loadTeamBoard(reportDate: string) {
     forbidden: false as const,
     reportDate: reportDate || calendarDateInZone(new Date()),
     rows,
-    projects: (projects ?? []).map((project) => ({ id: String(project.id), name: String(project.name) })),
+    projects: projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
   }
-}
-
-function relatedProject(row: unknown): string {
-  if (!row || typeof row !== 'object') return ''
-  return relatedName((row as { projects?: unknown }).projects)
-}
-
-function relatedName(value: unknown): string {
-  if (!value) return ''
-  if (Array.isArray(value)) return relatedName(value[0])
-  if (typeof value === 'object' && value && 'name' in value) return String((value as { name?: string }).name ?? '')
-  return ''
 }
 
 export type WeeklyContext = {
@@ -219,12 +231,7 @@ function refreshWeekly() {
 export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'weekly_report',
-      p_object_id: null,
-      p_metadata: { path: '/reports/weekly', reason: 'role_cannot_submit' },
-    })
+    await auditDenied(session.id, 'weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 
@@ -233,22 +240,22 @@ export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadR
   const selected = weekStart || currentWeekStart(now, settings.timeZone)
   if (!isSelectableWeek(selected, now, settings.timeZone)) return { ok: false, error: messages.weeklyWeek }
 
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
+  const sql = getSql()
+  if (!sql) return { ok: false, error: messages.saveFailed }
   const weekEnd = shiftCalendarDate(selected, 6)
-  const [{ data: reportRow }, { data: dailies }] = await Promise.all([
-    supabase.from('weekly_reports').select('*').eq('user_id', session.id).eq('week_start', selected).maybeSingle(),
-    supabase
-      .from('daily_reports')
-      .select('report_date, done_today')
-      .eq('user_id', session.id)
-      .gte('report_date', selected)
-      .lte('report_date', weekEnd)
-      .order('report_date'),
+  const [reportRows, dailies] = await Promise.all([
+    sql`select * from public.weekly_reports where user_id = ${session.id}::uuid and week_start = ${selected}::date limit 1`,
+    sql`
+      select report_date, done_today from public.daily_reports
+      where user_id = ${session.id}::uuid
+        and report_date >= ${selected}::date
+        and report_date <= ${weekEnd}::date
+      order by report_date
+    `,
   ])
 
   const suggestion = suggestFromDailyDone(
-    (dailies ?? []).map((row) => ({
+    dailies.map((row) => ({
       reportDate: String(row.report_date).slice(0, 10),
       doneToday: typeof row.done_today === 'string' ? row.done_today : '',
     })),
@@ -262,7 +269,7 @@ export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadR
       deadlineLabel: weeklyDeadlineLabel(settings.weeklyDeadlineWeekday, settings.weeklyDeadlineTime, settings.timeZone),
       pastDeadline: isPastWeeklyDeadline(selected, settings.weeklyDeadlineWeekday, settings.weeklyDeadlineTime, now, settings.timeZone),
       suggestion,
-      report: reportRow ? mapWeeklyReport(reportRow as Record<string, unknown>) : null,
+      report: reportRows[0] ? mapWeeklyReport(reportRows[0] as Record<string, unknown>) : null,
       weeks: selectableWeekStarts(now, settings.timeZone).map((start) => ({ weekStart: start, label: formatWeek(start) })),
     },
   }
@@ -271,12 +278,7 @@ export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadR
 export async function saveWeeklyReport(input: WeeklyInput): Promise<WeeklySaveResult> {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'weekly_report',
-      p_object_id: null,
-      p_metadata: { path: '/reports/weekly', reason: 'role_cannot_submit' },
-    })
+    await auditDenied(session.id, 'weekly_report', { path: '/reports/weekly', reason: 'role_cannot_submit' })
     return { ok: false, error: messages.forbidden }
   }
 
@@ -286,30 +288,40 @@ export async function saveWeeklyReport(input: WeeklyInput): Promise<WeeklySaveRe
     return { ok: false, error: Object.values(fieldErrors)[0], fieldErrors }
   }
 
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, error: messages.saveFailed }
+  const sql = getSql()
+  if (!sql) return { ok: false, error: messages.saveFailed }
 
-  const { data: existing } = await supabase
-    .from('weekly_reports')
-    .select('status')
-    .eq('user_id', session.id)
-    .eq('week_start', input.weekStart)
-    .maybeSingle()
-
+  const existingRows = await sql`
+    select status from public.weekly_reports
+    where user_id = ${session.id}::uuid and week_start = ${input.weekStart}::date
+    limit 1
+  `
+  const existing = existingRows[0]
   const status = input.intent === 'submit' || existing?.status === 'submitted' ? 'submitted' : 'draft'
-  const { error } = await supabase.from('weekly_reports').upsert(
-    {
-      user_id: session.id,
-      week_start: input.weekStart,
-      highlights: input.highlights.trim(),
-      progress: input.progress.trim(),
-      risks: input.risks.trim(),
-      next_week_plan: input.nextWeek.trim(),
-      status,
-    },
-    { onConflict: 'user_id,week_start' },
-  )
-  if (error) return { ok: false, error: mapWriteError(error.message) }
+  try {
+    await sql`
+      insert into public.weekly_reports (
+        user_id, week_start, highlights, progress, risks, next_week_plan, status
+      ) values (
+        ${session.id}::uuid,
+        ${input.weekStart}::date,
+        ${input.highlights.trim()},
+        ${input.progress.trim()},
+        ${input.risks.trim()},
+        ${input.nextWeek.trim()},
+        ${status}
+      )
+      on conflict (user_id, week_start) do update set
+        highlights = excluded.highlights,
+        progress = excluded.progress,
+        risks = excluded.risks,
+        next_week_plan = excluded.next_week_plan,
+        status = excluded.status,
+        updated_at = now()
+    `
+  } catch (error) {
+    return { ok: false, error: mapWriteError(error instanceof Error ? error.message : '') }
+  }
 
   refreshWeekly()
   const loaded = await loadWeeklyContext(input.weekStart)

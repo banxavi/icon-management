@@ -6,11 +6,11 @@ import { parseOrgSettings } from '@/lib/admin/settings'
 import { canEditProfileField } from '@/lib/auth/profile'
 import { clientIp } from '@/lib/auth/request'
 import { requireSession } from '@/lib/auth/session'
+import { auth, authReady } from '@/lib/auth/server'
 import { TEAM_ID } from '@/lib/constants'
+import { getSql, withAuthUid } from '@/lib/db'
+import { siteUrl } from '@/lib/env'
 import { messages } from '@/lib/messages'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { siteUrl } from '@/lib/supabase/env'
-import { createClient } from '@/lib/supabase/server'
 import type { AppRole } from '@/lib/types'
 
 export type AdminResult = { ok: true; message: string } | { ok: false; errors: string[] }
@@ -18,55 +18,72 @@ export type AdminResult = { ok: true; message: string } | { ok: false; errors: s
 async function requireAdmin() {
   const session = await requireSession()
   if (!session.roles.includes('admin')) {
-    const supabase = await createClient()
-    await supabase?.rpc('audit_access_denied', {
-      p_object_type: 'page',
-      p_object_id: null,
-      p_metadata: { path: '/admin' },
-    })
+    try {
+      await withAuthUid(
+        session.id,
+        (sql) => sql`select public.audit_access_denied('page', null, ${JSON.stringify({ path: '/admin' })}::jsonb)`,
+      )
+    } catch {
+      // ignore
+    }
     return null
   }
   return session
 }
 
-async function findUserId(admin: NonNullable<ReturnType<typeof createAdminClient>>, email: string) {
-  for (let page = 1; page <= 10; page += 1) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 })
-    if (error) return { error: error.message }
-    const found = data.users.find((user) => user.email?.toLowerCase() === email)
-    if (found) return { id: found.id }
-    if (data.users.length < 200) return { id: null }
+async function findUserIdByEmail(email: string): Promise<{ id: string | null; hasProfile: boolean; error?: string }> {
+  const sql = getSql()
+  if (!sql) return { id: null, hasProfile: false, error: 'Database is not configured.' }
+  const rows = await sql`select id from neon_auth."user" where lower(email) = ${email.toLowerCase()} limit 1`
+  if (rows[0]?.id) {
+    const authId = String(rows[0].id)
+    const profile = await sql`select 1 from public.profiles where id = ${authId}::uuid limit 1`
+    return { id: authId, hasProfile: Boolean(profile[0]) }
   }
-  return { id: null }
+  const profile = await sql`select id from public.profiles where lower(email) = ${email.toLowerCase()} limit 1`
+  return { id: profile[0]?.id ? String(profile[0].id) : null, hasProfile: Boolean(profile[0]?.id) }
 }
 
-async function applyMembership(admin: NonNullable<ReturnType<typeof createAdminClient>>, userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
-  const { data: roleRow, error: roleError } = await admin.from('roles').select('id').eq('code', role).single()
-  if (roleError || !roleRow) return `Could not find the ${role} role.`
-  const { data: project, error: projectError } = await admin.from('projects').select('id').eq('name', projectName).maybeSingle()
-  if (projectError || !project) return `Project "${projectName}" was not found.`
+async function sendInvitePasswordReset(email: string): Promise<string | null> {
+  const reset = await auth.requestPasswordReset({
+    email,
+    redirectTo: `${siteUrl()}/login/update-password`,
+  })
+  if (reset.error) {
+    return reset.error.message || 'unknown error'
+  }
+  return null
+}
 
-  await admin.from('profiles').update({ team_id: TEAM_ID }).eq('id', userId)
-  await admin.from('user_roles').delete().eq('user_id', userId)
-  const { error: roleInsertError } = await admin.from('user_roles').insert({ user_id: userId, role_id: roleRow.id })
-  if (roleInsertError) return roleInsertError.message
+async function applyMembership(userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
+  const sql = getSql()
+  if (!sql) return 'Database is not configured.'
+  const roleRows = await sql`select id from public.roles where code = ${role} limit 1`
+  if (!roleRows[0]) return `Could not find the ${role} role.`
+  const projectRows = await sql`select id from public.projects where name = ${projectName} limit 1`
+  if (!projectRows[0]) return `Project "${projectName}" was not found.`
 
-  await admin.from('project_members').delete().eq('user_id', userId)
-  const { error: memberError } = await admin.from('project_members').insert({ user_id: userId, project_id: project.id, member_role: role })
-  if (memberError) return memberError.message
+  await sql`update public.profiles set team_id = ${TEAM_ID}::uuid where id = ${userId}::uuid`
+  await sql`delete from public.user_roles where user_id = ${userId}::uuid`
+  await sql`insert into public.user_roles (user_id, role_id) values (${userId}::uuid, ${roleRows[0].id}::uuid)`
+  await sql`delete from public.project_members where user_id = ${userId}::uuid`
+  await sql`
+    insert into public.project_members (user_id, project_id, member_role)
+    values (${userId}::uuid, ${projectRows[0].id}::uuid, ${role})
+  `
 
   if (role === 'team_leader') {
-    await admin.from('teams').update({ leader_id: userId }).eq('id', TEAM_ID)
+    await sql`update public.teams set leader_id = ${userId}::uuid where id = ${TEAM_ID}::uuid`
   }
   if (role !== 'reviewer') {
-    await admin.from('reviewer_assignments').delete().eq('reviewer_id', userId)
+    await sql`delete from public.reviewer_assignments where reviewer_id = ${userId}::uuid`
   } else if (assignedMemberIds) {
-    await admin.from('reviewer_assignments').delete().eq('reviewer_id', userId)
-    if (assignedMemberIds.length > 0) {
-      const { error } = await admin.from('reviewer_assignments').insert(
-        assignedMemberIds.filter((id) => id !== userId).map((memberId) => ({ reviewer_id: userId, member_id: memberId })),
-      )
-      if (error) return error.message
+    await sql`delete from public.reviewer_assignments where reviewer_id = ${userId}::uuid`
+    for (const memberId of assignedMemberIds.filter((id) => id !== userId)) {
+      await sql`
+        insert into public.reviewer_assignments (reviewer_id, member_id)
+        values (${userId}::uuid, ${memberId}::uuid)
+      `
     }
   }
   return null
@@ -75,62 +92,77 @@ async function applyMembership(admin: NonNullable<ReturnType<typeof createAdminC
 export async function importMembers(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
   const session = await requireAdmin()
   if (!session) return { ok: false, errors: [messages.forbidden] }
-  const admin = createAdminClient()
-  if (!admin) return { ok: false, errors: [messages.importNeedsServer] }
+  if (!authReady()) return { ok: false, errors: [messages.importNeedsServer] }
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.importNeedsServer] }
 
   const file = formData.get('file')
   const text = file instanceof File ? await file.text() : String(formData.get('csv') || '')
-  const { data: projects } = await admin.from('projects').select('name')
-  const parsed = parseMemberCsv(text, (projects ?? []).map((project) => String(project.name)))
+  const projects = await sql`select name from public.projects`
+  const parsed = parseMemberCsv(text, projects.map((project) => String(project.name)))
   if (!parsed.ok) return { ok: false, errors: parsed.errors }
 
   const errors: string[] = []
   for (const row of parsed.rows) {
-    const located = await findUserId(admin, row.email)
-    if ('error' in located && located.error) {
+    const located = await findUserIdByEmail(row.email)
+    if (located.error) {
       errors.push(`Row ${row.line}: ${located.error}`)
       continue
     }
     let userId = located.id
+    const needsInvite = !userId || !located.hasProfile
     if (!userId) {
-      const { data, error } = await admin.auth.admin.inviteUserByEmail(row.email, {
-        data: { full_name: row.fullName },
-        redirectTo: `${siteUrl()}/auth/callback?next=/login/update-password`,
+      const created = await auth.admin.createUser({
+        email: row.email,
+        name: row.fullName,
+        password: `${crypto.randomUUID().replace(/-/g, '')}Aa1!`,
       })
-      if (error || !data.user) {
-        errors.push(`Row ${row.line}: ${error?.message ?? 'Could not create the account.'}`)
+      const createdUser = (created.data as { user?: { id?: string } } | null | undefined)?.user
+      if (created.error || !createdUser?.id) {
+        errors.push(`Row ${row.line}: ${created.error?.message ?? 'Could not create the account.'}`)
         continue
       }
-      userId = data.user.id
+      userId = createdUser.id
     }
-    const { error: profileError } = await admin.from('profiles').update({
-      full_name: row.fullName,
-      email: row.email,
-      team_id: TEAM_ID,
-      status: 'active',
-    }).eq('id', userId)
-    if (profileError) {
-      errors.push(`Row ${row.line}: ${profileError.message}`)
+    // New auth users and retries for auth-without-profile must (re)send the invite reset.
+    // Never upsert a profile if the reset email failed — that would report success with no way to sign in.
+    if (needsInvite) {
+      const resetError = await sendInvitePasswordReset(row.email)
+      if (resetError) {
+        errors.push(
+          `Row ${row.line}: ${located.hasProfile === false && located.id ? 'auth user exists but ' : ''}password reset email failed (${resetError}). Re-import after fixing email delivery.`,
+        )
+        continue
+      }
+    }
+    try {
+      await sql`
+        insert into public.profiles (id, full_name, email, team_id, status)
+        values (${userId}::uuid, ${row.fullName}, ${row.email}, ${TEAM_ID}::uuid, 'active')
+        on conflict (id) do update set
+          full_name = excluded.full_name,
+          email = excluded.email,
+          team_id = excluded.team_id,
+          status = 'active',
+          updated_at = now()
+      `
+    } catch (error) {
+      errors.push(`Row ${row.line}: ${error instanceof Error ? error.message : messages.saveFailed}`)
       continue
     }
-    const { error: accessError } = await admin.auth.admin.updateUserById(userId, {
-      ban_duration: 'none',
-      user_metadata: { full_name: row.fullName },
-    })
-    if (accessError) {
-      errors.push(`Row ${row.line}: ${accessError.message}`)
-      continue
-    }
-    const membershipError = await applyMembership(admin, userId, row.role, row.project)
+    const membershipError = await applyMembership(userId, row.role, row.project)
     if (membershipError) errors.push(`Row ${row.line}: ${membershipError}`)
   }
 
-  await admin.from('audit_logs').insert({
-    actor_id: session.id,
-    action: 'users_imported',
-    object_type: 'profile',
-    metadata: { rows: parsed.rows.length, ip: await clientIp() },
-  })
+  await sql`
+    insert into public.audit_logs (actor_id, action, object_type, metadata)
+    values (
+      ${session.id}::uuid,
+      'users_imported',
+      'profile',
+      ${JSON.stringify({ rows: parsed.rows.length, ip: await clientIp() })}::jsonb
+    )
+  `
   revalidatePath('/admin')
   revalidatePath('/team/directory')
   if (errors.length > 0) return { ok: false, errors }
@@ -140,22 +172,25 @@ export async function importMembers(_prev: AdminResult | null, formData: FormDat
 export async function updateAccount(formData: FormData): Promise<AdminResult> {
   const session = await requireAdmin()
   if (!session) return { ok: false, errors: [messages.forbidden] }
-  const admin = createAdminClient()
-  if (!admin) return { ok: false, errors: [messages.importNeedsServer] }
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.importNeedsServer] }
 
   const userId = String(formData.get('userId') || '')
   const role = String(formData.get('role') || '') as AppRole
   const project = String(formData.get('project') || '')
   const assigned = formData.getAll('assigned').map(String)
-  const membershipError = await applyMembership(admin, userId, role, project, assigned)
+  const membershipError = await applyMembership(userId, role, project, assigned)
   if (membershipError) return { ok: false, errors: [membershipError] }
-  await admin.from('audit_logs').insert({
-    actor_id: session.id,
-    action: 'role_assigned',
-    object_type: 'profile',
-    object_id: userId,
-    metadata: { role, project, assigned },
-  })
+  await sql`
+    insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+    values (
+      ${session.id}::uuid,
+      'role_assigned',
+      'profile',
+      ${userId}::uuid,
+      ${JSON.stringify({ role, project, assigned })}::jsonb
+    )
+  `
   revalidatePath('/admin')
   return { ok: true, message: messages.roleSaved }
 }
@@ -163,21 +198,26 @@ export async function updateAccount(formData: FormData): Promise<AdminResult> {
 export async function setAccountActive(formData: FormData): Promise<AdminResult> {
   const session = await requireAdmin()
   if (!session) return { ok: false, errors: [messages.forbidden] }
-  const admin = createAdminClient()
-  if (!admin) return { ok: false, errors: [messages.importNeedsServer] }
+  if (!authReady()) return { ok: false, errors: [messages.importNeedsServer] }
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.importNeedsServer] }
   const userId = String(formData.get('userId') || '')
   const active = String(formData.get('active') || '') === 'true'
-  const { error } = await admin.auth.admin.updateUserById(userId, { ban_duration: active ? 'none' : '876000h' })
-  if (error) return { ok: false, errors: [error.message] }
-  const { error: profileError } = await admin.from('profiles').update({ status: active ? 'active' : 'inactive' }).eq('id', userId)
-  if (profileError) return { ok: false, errors: [profileError.message] }
-  await admin.from('audit_logs').insert({
-    actor_id: session.id,
-    action: active ? 'user_reactivated' : 'user_deactivated',
-    object_type: 'profile',
-    object_id: userId,
-    metadata: {},
-  })
+  const banResult = active
+    ? await auth.admin.unbanUser({ userId })
+    : await auth.admin.banUser({ userId, banReason: 'Deactivated by admin' })
+  if (banResult.error) return { ok: false, errors: [banResult.error.message || 'Could not update account access.'] }
+  await sql`update public.profiles set status = ${active ? 'active' : 'inactive'} where id = ${userId}::uuid`
+  await sql`
+    insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+    values (
+      ${session.id}::uuid,
+      ${active ? 'user_reactivated' : 'user_deactivated'},
+      'profile',
+      ${userId}::uuid,
+      '{}'::jsonb
+    )
+  `
   revalidatePath('/admin')
   return { ok: true, message: active ? messages.reactivatedOk : messages.deactivatedOk }
 }
@@ -195,31 +235,36 @@ export async function updateOrgSettings(formData: FormData): Promise<AdminResult
     weeklyDeadlineTime: String(formData.get('weeklyDeadlineTime') || ''),
   })
   if (!parsed.ok) return parsed
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, errors: [messages.saveFailed] }
-  const { data: current } = await supabase.from('org_settings').select('id').limit(1).maybeSingle()
-  if (!current) return { ok: false, errors: [messages.saveFailed] }
-  const { error } = await supabase.from('org_settings').update({
-    timezone: parsed.value.timezone,
-    retention_months: parsed.value.retentionMonths,
-    daily_window: parsed.value.dailyWindow,
-    max_upload_mb: parsed.value.maxUploadMb,
-    allowed_extensions: parsed.value.allowedExtensions,
-    weekly_deadline_weekday: parsed.value.weeklyDeadlineWeekday,
-    weekly_deadline_time: parsed.value.weeklyDeadlineTime,
-    updated_at: new Date().toISOString(),
-  }).eq('id', current.id)
-  if (error) return { ok: false, errors: [error.message] }
-  const admin = createAdminClient()
-  if (admin) {
-    await admin.from('audit_logs').insert({
-      actor_id: session.id,
-      action: 'org_settings_updated',
-      object_type: 'org_settings',
-      object_id: current.id,
-      metadata: parsed.value,
-    })
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.saveFailed] }
+  const current = await sql`select id from public.org_settings limit 1`
+  if (!current[0]) return { ok: false, errors: [messages.saveFailed] }
+  try {
+    await sql`
+      update public.org_settings set
+        timezone = ${parsed.value.timezone},
+        retention_months = ${parsed.value.retentionMonths},
+        daily_window = ${parsed.value.dailyWindow},
+        max_upload_mb = ${parsed.value.maxUploadMb},
+        allowed_extensions = ${parsed.value.allowedExtensions},
+        weekly_deadline_weekday = ${parsed.value.weeklyDeadlineWeekday},
+        weekly_deadline_time = ${parsed.value.weeklyDeadlineTime},
+        updated_at = ${new Date().toISOString()}::timestamptz
+      where id = ${current[0].id}::uuid
+    `
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : messages.saveFailed] }
   }
+  await sql`
+    insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+    values (
+      ${session.id}::uuid,
+      'org_settings_updated',
+      'org_settings',
+      ${current[0].id}::uuid,
+      ${JSON.stringify(parsed.value)}::jsonb
+    )
+  `
   revalidatePath('/admin')
   revalidatePath('/documents')
   revalidatePath('/reports/weekly')
@@ -234,21 +279,24 @@ export async function updateMemberName(_prev: AdminResult | null, formData: Form
   if (fullName.length < 2 || fullName.length > 120) {
     return { ok: false, errors: ['Enter a name between 2 and 120 characters.'] }
   }
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, errors: [messages.saveFailed] }
-  const { data: target } = await supabase.from('profiles').select('id, team_id').eq('id', userId).maybeSingle()
-  if (!target) return { ok: false, errors: [messages.forbidden] }
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.saveFailed] }
+  const target = await sql`select id, team_id from public.profiles where id = ${userId}::uuid limit 1`
+  if (!target[0]) return { ok: false, errors: [messages.forbidden] }
   const allowed = canEditProfileField({
     actorId: session.id,
     actorRoles: session.roles,
     targetId: userId,
     field: 'fullName',
-    sameTeam: Boolean(session.teamId && target.team_id === session.teamId),
+    sameTeam: Boolean(session.teamId && target[0].team_id === session.teamId),
   })
   if (!allowed) return { ok: false, errors: ['Only an Admin or Team Leader can change another member name.'] }
-  const { data, error } = await supabase.from('profiles').update({ full_name: fullName }).eq('id', userId).select('full_name').maybeSingle()
-  if (error || !data) return { ok: false, errors: [error?.message || messages.saveFailed] }
-  if (data.full_name !== fullName) return { ok: false, errors: ['That name could not be changed.'] }
+  const updated = await sql`
+    update public.profiles set full_name = ${fullName}
+    where id = ${userId}::uuid
+    returning full_name
+  `
+  if (!updated[0] || updated[0].full_name !== fullName) return { ok: false, errors: ['That name could not be changed.'] }
   revalidatePath('/team/directory')
   revalidatePath(`/team/${userId}`)
   return { ok: true, message: messages.nameSaved }
@@ -256,15 +304,21 @@ export async function updateMemberName(_prev: AdminResult | null, formData: Form
 
 export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
   const session = await requireSession()
-  const supabase = await createClient()
-  if (!supabase) return { ok: false, errors: [messages.saveFailed] }
+  const sql = getSql()
+  if (!sql) return { ok: false, errors: [messages.saveFailed] }
   const contact = String(formData.get('contact') || '').trim()
   const skills = String(formData.get('skills') || '')
     .split(',')
     .map((skill) => skill.trim())
     .filter(Boolean)
-  const { error } = await supabase.from('profiles').update({ contact, skills }).eq('id', session.id)
-  if (error) return { ok: false, errors: [error.message] }
+  try {
+    await sql`
+      update public.profiles set contact = ${contact}, skills = ${skills}
+      where id = ${session.id}::uuid
+    `
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : messages.saveFailed] }
+  }
   revalidatePath('/team/directory')
   revalidatePath(`/team/${session.id}`)
   return { ok: true, message: messages.profileSaved }
