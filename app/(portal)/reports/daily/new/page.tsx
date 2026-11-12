@@ -15,11 +15,12 @@ export default async function NewDailyReportPage() {
   const session = await requireSession()
   if (!canSubmitReport(session.roles)) return <Forbidden />
   const now = new Date()
-  const settings = await loadReportSettings()
+  const sql = getSql()
+
+  // Settings + projects are independent — fetch in parallel.
+  const [settings, projects] = await Promise.all([loadReportSettings(), loadProjects(session)])
   const bounds = openReportDateBounds(now, settings.timeZone)
   const today = calendarDateInZone(now, settings.timeZone)
-  const projects = await loadProjects(session)
-  const sql = getSql()
   const rows = sql
     ? await sql`
         select dr.*, p.name as project_name

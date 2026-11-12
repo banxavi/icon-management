@@ -4,7 +4,11 @@ type Sql = NeonQueryFunction<false, false>
 
 let cached: Sql | null | undefined
 
-/** Server-only Neon Postgres client (tagged template). Returns null when DATABASE_URL is unset. */
+/**
+ * Server-only Neon Postgres client (tagged template). Returns null when DATABASE_URL is unset.
+ * Prefer the pooled `DATABASE_URL` for app traffic — each `sql`/`sql.transaction` call is an
+ * HTTPS round-trip to Neon, so pooling + batched `transaction()` matter for tab navigations.
+ */
 export function getSql(): Sql | null {
   if (cached !== undefined) return cached
   const url = process.env.DATABASE_URL || process.env.DATABASE_URL_UNPOOLED

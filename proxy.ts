@@ -4,7 +4,12 @@ import { isPublicPath, shouldRedirectToLogin, skipsSessionRefresh } from '@/lib/
 import { auth, authReady } from '@/lib/auth/server'
 
 /**
- * Next.js 16 request proxy. Uses Neon Auth session; public paths and /api/auth stay open.
+ * Next.js 16 request proxy.
+ * GET/HEAD portal navigations use Neon Auth's official middleware so the signed
+ * session_data cookie is minted/refreshed (sub-ms getSession on later loads).
+ * Non-GET (Server Actions / form POSTs) skip that middleware and use a plain
+ * getSession gate instead — middleware redirects during cookie refresh can
+ * 307 authenticated mutations to /login.
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -23,20 +28,40 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
-  if (isPublicPath(pathname) || pathname.startsWith('/api/')) {
-    // Still let Neon Auth middleware refresh cookies on public pages when present.
-    if (pathname === '/login') {
-      const { data } = await auth.getSession()
-      if (data?.user) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        url.search = ''
-        return NextResponse.redirect(url)
-      }
+  // API handlers enforce their own auth; do not gate them at the edge.
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next({ request })
+  }
+
+  // Auth callback / sign-out own cookies; leave them alone.
+  if (pathname.startsWith('/auth/')) {
+    return NextResponse.next({ request })
+  }
+
+  // Logged-in users hitting /login go to the portal.
+  if (pathname === '/login') {
+    const { data } = await auth.getSession()
+    if (data?.user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      url.search = ''
+      return NextResponse.redirect(url)
     }
     return NextResponse.next({ request })
   }
 
+  if (isPublicPath(pathname)) {
+    return NextResponse.next({ request })
+  }
+
+  // Tab/page navigations — mint session_data for the RSC fast path.
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    return auth.middleware({ loginUrl: '/login' })(request)
+  }
+
+  // Server Actions / mutations: do not run auth.middleware (redirect-on-refresh
+  // can abort POSTs). Still reject clearly logged-out requests at the edge;
+  // handlers call requireSession() for the real ACL check.
   const { data } = await auth.getSession()
   if (shouldRedirectToLogin(pathname, Boolean(data?.user))) {
     const url = request.nextUrl.clone()
@@ -44,7 +69,6 @@ export async function proxy(request: NextRequest) {
     url.search = ''
     return NextResponse.redirect(url)
   }
-
   return NextResponse.next({ request })
 }
 

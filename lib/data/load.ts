@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { roleLabel } from '@/lib/auth/permissions'
 import { asRole, asStringArray, mapReport } from '@/lib/data/rows'
 import { getSql } from '@/lib/db'
@@ -22,12 +23,13 @@ function mapNotice(row: Record<string, unknown>): Notice {
   }
 }
 
-export async function loadShell(session: SessionUser): Promise<{ unreadCount: number; weekSubmitted: number; notices: Notice[] }> {
+/** Shell chrome data — cached per request; one HTTP transaction for all queries. */
+export const loadShell = cache(async (session: SessionUser): Promise<{ unreadCount: number; weekSubmitted: number; notices: Notice[] }> => {
   const sql = getSql()
   const days = weekdaysOfWeek(new Date())
   if (!sql) return { unreadCount: 0, weekSubmitted: 0, notices: [] }
   const since = notificationHistoryStart(new Date()).toISOString()
-  const [unreadRows, submittedRows, noticeRows] = await Promise.all([
+  const [unreadRows, submittedRows, noticeRows] = await sql.transaction([
     sql`select count(*)::int as c from public.notifications where recipient_id = ${session.id}::uuid and read_at is null and created_at >= ${since}::timestamptz`,
     sql`select count(*)::int as c from public.daily_reports where user_id = ${session.id}::uuid and status = 'submitted' and report_date = any(${days}::date[])`,
     sql`select id, title, body, read_at, created_at from public.notifications where recipient_id = ${session.id}::uuid and created_at >= ${since}::timestamptz order by created_at desc limit 8`,
@@ -37,7 +39,7 @@ export async function loadShell(session: SessionUser): Promise<{ unreadCount: nu
     weekSubmitted: Number(submittedRows[0]?.c ?? 0),
     notices: noticeRows.map(mapNotice),
   }
-}
+})
 
 export async function loadHome(session: SessionUser) {
   const sql = getSql()
@@ -50,7 +52,8 @@ export async function loadHome(session: SessionUser) {
   }))
   if (!sql) return { today, report: null, week: emptyWeek, assigned: [] as AssignedReport[] }
 
-  const [reportRows, weekRows, assignedRows] = await Promise.all([
+  const isReviewer = session.roles.includes('reviewer')
+  const [reportRows, weekRows, assignedRows] = await sql.transaction([
     sql`
       select dr.*, p.name as project_name
       from public.daily_reports dr
@@ -62,7 +65,7 @@ export async function loadHome(session: SessionUser) {
       select report_date, status from public.daily_reports
       where user_id = ${session.id}::uuid and report_date = any(${days}::date[])
     `,
-    session.roles.includes('reviewer')
+    isReviewer
       ? sql`
           select dr.*, p.name as project_name, pr.full_name as author_name
           from public.daily_reports dr
@@ -74,11 +77,11 @@ export async function loadHome(session: SessionUser) {
           order by dr.report_date desc
           limit 30
         `
-      : Promise.resolve([] as Record<string, unknown>[]),
+      : sql`select 1 where false`,
   ])
 
   const submittedDates = new Set(weekRows.filter((row) => row.status === 'submitted').map((row) => String(row.report_date)))
-  const assigned: AssignedReport[] = assignedRows.map((row) => {
+  const assigned: AssignedReport[] = (isReviewer ? assignedRows : []).map((row) => {
     const report = mapReport({ ...row, projects: { name: row.project_name } })
     return {
       id: report.id,
@@ -102,24 +105,31 @@ export async function loadHome(session: SessionUser) {
 export async function loadProjects(session: SessionUser) {
   const sql = getSql()
   if (!sql) return []
-  const mine = await sql`
+  // Single round-trip: prefer memberships, else fall back to all projects.
+  const data = await sql`
+    with mine as (
+      select p.id, p.name
+      from public.project_members pm
+      join public.projects p on p.id = pm.project_id
+      where pm.user_id = ${session.id}::uuid
+    )
+    select id, name from mine
+    union all
     select p.id, p.name
-    from public.project_members pm
-    join public.projects p on p.id = pm.project_id
-    where pm.user_id = ${session.id}::uuid
+    from public.projects p
+    where not exists (select 1 from mine)
+    order by name
   `
-  if (mine.length > 0) return mine.map((p) => ({ id: String(p.id), name: String(p.name) }))
-  const data = await sql`select id, name from public.projects order by name`
   return data.map((project) => ({ id: String(project.id), name: String(project.name) }))
 }
 
 export async function loadDirectory(session: SessionUser): Promise<DirectoryPerson[]> {
   const sql = getSql()
   if (!sql) return []
-  const people = session.teamId
-    ? await sql`select id, full_name, email, contact, skills, team_id from public.profiles where team_id = ${session.teamId}::uuid order by full_name`
-    : await sql`select id, full_name, email, contact, skills, team_id from public.profiles order by full_name`
-  const [roleRows, memberships] = await Promise.all([
+  const [people, roleRows, memberships] = await sql.transaction([
+    session.teamId
+      ? sql`select id, full_name, email, contact, skills, team_id from public.profiles where team_id = ${session.teamId}::uuid order by full_name`
+      : sql`select id, full_name, email, contact, skills, team_id from public.profiles order by full_name`,
     sql`select ur.user_id, r.code from public.user_roles ur join public.roles r on r.id = ur.role_id`,
     sql`select pm.user_id, p.name from public.project_members pm join public.projects p on p.id = pm.project_id`,
   ])
@@ -177,7 +187,7 @@ export async function loadAdmin(): Promise<{ users: AdminUser[]; projects: strin
     },
   }
   if (!sql) return empty
-  const [people, roleRows, memberships, assignments, projects, settingsRows] = await Promise.all([
+  const [people, roleRows, memberships, assignments, projects, settingsRows] = await sql.transaction([
     sql`select id, full_name, email, status from public.profiles order by full_name`,
     sql`select ur.user_id, r.code from public.user_roles ur join public.roles r on r.id = ur.role_id`,
     sql`select pm.user_id, p.name from public.project_members pm join public.projects p on p.id = pm.project_id`,

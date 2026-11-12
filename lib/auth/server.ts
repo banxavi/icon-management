@@ -20,7 +20,12 @@ const env = process.env.NEON_AUTH_BASE_URL && process.env.NEON_AUTH_COOKIE_SECRE
 export const auth = env
   ? createNeonAuth({
       baseUrl: env.baseUrl,
-      cookies: { secret: env.secret },
+      cookies: {
+        secret: env.secret,
+        // Signed session_data cookie — validates getSession locally (~1ms) instead of
+        // round-tripping Neon Auth on every portal navigation.
+        sessionDataTtl: 300,
+      },
     })
   : (null as unknown as ReturnType<typeof createNeonAuth>)
 
