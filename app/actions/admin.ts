@@ -3,15 +3,17 @@
 import { revalidatePath } from 'next/cache'
 import { parseMemberCsv } from '@/lib/admin/csv'
 import { parseOrgSettings } from '@/lib/admin/settings'
-import { canEditProfileField } from '@/lib/auth/profile'
+import { primaryRole } from '@/lib/auth/permissions'
+import { canAssignRole, canEditProfileField } from '@/lib/auth/profile'
 import { clientIp } from '@/lib/auth/request'
 import { requireSession } from '@/lib/auth/session'
 import { auth, authReady } from '@/lib/auth/server'
 import { TEAM_ID } from '@/lib/constants'
+import { asRole } from '@/lib/data/rows'
 import { getSql, withAuthUid } from '@/lib/db'
 import { siteUrl } from '@/lib/env'
 import { messages } from '@/lib/messages'
-import type { AppRole } from '@/lib/types'
+import { ROLE_CODES, type AppRole } from '@/lib/types'
 
 export type AdminResult = { ok: true; message: string } | { ok: false; errors: string[] }
 
@@ -55,22 +57,15 @@ async function sendInvitePasswordReset(email: string): Promise<string | null> {
   return null
 }
 
-async function applyMembership(userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
+async function applyRole(userId: string, role: AppRole, assignedMemberIds?: string[]) {
   const sql = getSql()
   if (!sql) return 'Database is not configured.'
   const roleRows = await sql`select id from public.roles where code = ${role} limit 1`
   if (!roleRows[0]) return `Could not find the ${role} role.`
-  const projectRows = await sql`select id from public.projects where name = ${projectName} limit 1`
-  if (!projectRows[0]) return `Project "${projectName}" was not found.`
 
   await sql`update public.profiles set team_id = ${TEAM_ID}::uuid where id = ${userId}::uuid`
   await sql`delete from public.user_roles where user_id = ${userId}::uuid`
   await sql`insert into public.user_roles (user_id, role_id) values (${userId}::uuid, ${roleRows[0].id}::uuid)`
-  await sql`delete from public.project_members where user_id = ${userId}::uuid`
-  await sql`
-    insert into public.project_members (user_id, project_id, member_role)
-    values (${userId}::uuid, ${projectRows[0].id}::uuid, ${role})
-  `
 
   if (role === 'team_leader') {
     await sql`update public.teams set leader_id = ${userId}::uuid where id = ${TEAM_ID}::uuid`
@@ -87,6 +82,51 @@ async function applyMembership(userId: string, role: AppRole, projectName: strin
     }
   }
   return null
+}
+
+async function resolveProjectIds(projectNames: string[]): Promise<{ ok: true; ids: Map<string, string> } | { ok: false; error: string }> {
+  const sql = getSql()
+  if (!sql) return { ok: false, error: 'Database is not configured.' }
+  if (projectNames.length === 0) return { ok: true, ids: new Map() }
+  const projectRows = await sql`select id, name from public.projects where name = any(${projectNames}::text[])`
+  const found = new Map(projectRows.map((row) => [String(row.name), String(row.id)]))
+  for (const name of projectNames) {
+    if (!found.has(name)) return { ok: false, error: `Project "${name}" was not found.` }
+  }
+  return { ok: true, ids: found }
+}
+
+async function applyProjects(userId: string, projectNames: string[], memberRole: AppRole) {
+  const sql = getSql()
+  if (!sql) return 'Database is not configured.'
+  const resolved = await resolveProjectIds(projectNames)
+  if (!resolved.ok) return resolved.error
+
+  await sql`delete from public.project_members where user_id = ${userId}::uuid`
+  for (const name of projectNames) {
+    const projectId = resolved.ids.get(name)!
+    await sql`
+      insert into public.project_members (user_id, project_id, member_role)
+      values (${userId}::uuid, ${projectId}::uuid, ${memberRole})
+    `
+  }
+  return null
+}
+
+async function applyMembership(userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
+  // Validate the project exists before rewriting roles / team leadership.
+  const resolved = await resolveProjectIds([projectName])
+  if (!resolved.ok) return resolved.error
+  const roleError = await applyRole(userId, role, assignedMemberIds)
+  if (roleError) return roleError
+  return applyProjects(userId, [projectName], role)
+}
+
+function sameProjectSet(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  const left = [...a].sort()
+  const right = [...b].sort()
+  return left.every((name, index) => name === right[index])
 }
 
 export async function importMembers(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
@@ -302,24 +342,184 @@ export async function updateMemberName(_prev: AdminResult | null, formData: Form
   return { ok: true, message: messages.nameSaved }
 }
 
-export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
+/** Update employee profile fields. Profile `id` is never accepted for mutation. */
+export async function updateEmployeeProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
   const session = await requireSession()
   const sql = getSql()
   if (!sql) return { ok: false, errors: [messages.saveFailed] }
-  const contact = String(formData.get('contact') || '').trim()
-  const skills = String(formData.get('skills') || '')
-    .split(',')
-    .map((skill) => skill.trim())
-    .filter(Boolean)
-  try {
-    await sql`
-      update public.profiles set contact = ${contact}, skills = ${skills}
-      where id = ${session.id}::uuid
+
+  // Target is taken from userId (or self). Profile `id` is never written — reject spoofed id payloads.
+  const targetId = String(formData.get('userId') || session.id).trim()
+  if (!targetId) return { ok: false, errors: [messages.forbidden] }
+  if (formData.has('id')) {
+    const spoofedId = String(formData.get('id') || '').trim()
+    if (spoofedId && spoofedId !== targetId) {
+      return { ok: false, errors: ['Profile ID cannot be changed.'] }
+    }
+  }
+
+  const target = await sql`select id, team_id, full_name, email, contact, skills from public.profiles where id = ${targetId}::uuid limit 1`
+  if (!target[0]) return { ok: false, errors: [messages.forbidden] }
+
+  const sameTeam = Boolean(session.teamId && target[0].team_id === session.teamId)
+  const aclBase = {
+    actorId: session.id,
+    actorRoles: session.roles,
+    targetId,
+    sameTeam,
+  }
+
+  const canFullName = canEditProfileField({ ...aclBase, field: 'fullName' })
+  const canEmail = canEditProfileField({ ...aclBase, field: 'email' })
+  const canContact = canEditProfileField({ ...aclBase, field: 'contact' })
+  const canSkills = canEditProfileField({ ...aclBase, field: 'skills' })
+  const canRole = canEditProfileField({ ...aclBase, field: 'role' })
+  const canProjects = canEditProfileField({ ...aclBase, field: 'projects' })
+
+  if (!canFullName && !canEmail && !canContact && !canSkills && !canRole && !canProjects) {
+    return { ok: false, errors: [messages.forbidden] }
+  }
+
+  const existingRoles = await sql`
+    select r.code from public.user_roles ur
+    join public.roles r on r.id = ur.role_id
+    where ur.user_id = ${targetId}::uuid
+  `
+  const existingRoleCodes = existingRoles.map((row) => asRole(row.code)).filter((role): role is AppRole => Boolean(role))
+  const currentRole = primaryRole(existingRoleCodes)
+
+  const existingProjects = await sql`
+    select p.name from public.project_members pm
+    join public.projects p on p.id = pm.project_id
+    where pm.user_id = ${targetId}::uuid
+    order by p.name
+  `
+  const currentProjects = existingProjects.map((row) => String(row.name))
+
+  const errors: string[] = []
+  const fullName = canFullName
+    ? String(formData.get('fullName') || '').trim()
+    : String(target[0].full_name || '')
+  const email = canEmail
+    ? String(formData.get('email') || '').trim().toLowerCase()
+    : String(target[0].email || '').toLowerCase()
+  const contact = canContact
+    ? String(formData.get('contact') || '').trim()
+    : (typeof target[0].contact === 'string' ? target[0].contact : '')
+  const skills = canSkills
+    ? String(formData.get('skills') || '')
+      .split(',')
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+    : (Array.isArray(target[0].skills) ? target[0].skills.map(String) : [])
+  const nextRole = canRole ? asRole(String(formData.get('role') || '')) : currentRole
+  const nextProjects = canProjects
+    ? formData.getAll('projects').map(String).map((name) => name.trim()).filter(Boolean)
+    : currentProjects
+
+  if (canFullName && (fullName.length < 2 || fullName.length > 120)) {
+    errors.push('Enter a name between 2 and 120 characters.')
+  }
+  if (canEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.push('Enter a valid email address.')
+  }
+  if (canContact && contact.length > 200) {
+    errors.push('Contact must be at most 200 characters.')
+  }
+  if (canSkills && skills.length > 24) {
+    errors.push('Use at most 24 skills.')
+  }
+  if (canSkills && skills.some((skill) => skill.length > 40)) {
+    errors.push('Each skill must be at most 40 characters.')
+  }
+  const roleChanged = Boolean(canRole && nextRole && nextRole !== currentRole)
+  const projectsChanged = canProjects && !sameProjectSet(nextProjects, currentProjects)
+
+  if (canRole) {
+    if (!nextRole || !ROLE_CODES.includes(nextRole)) {
+      errors.push('Choose a valid role.')
+    } else if (
+      !canAssignRole({ actorRoles: session.roles, nextRole, currentRole })
+    ) {
+      errors.push('You do not have permission to assign that role.')
+    }
+  }
+  if (errors.length > 0) return { ok: false, errors }
+
+  if (canProjects && projectsChanged) {
+    const resolved = await resolveProjectIds(nextProjects)
+    if (!resolved.ok) return { ok: false, errors: [resolved.error] }
+  }
+
+  if (canEmail && email !== String(target[0].email || '').toLowerCase()) {
+    const taken = await sql`
+      select id from public.profiles
+      where lower(email) = ${email} and id is distinct from ${targetId}::uuid
+      limit 1
     `
+    if (taken[0]) return { ok: false, errors: ['That email is already used by another account.'] }
+  }
+
+  try {
+    if (canEmail && email !== String(target[0].email || '').toLowerCase()) {
+      await sql`update neon_auth."user" set email = ${email} where id = ${targetId}::uuid`
+      try {
+        await sql`update auth.users set email = ${email} where id = ${targetId}::uuid`
+      } catch {
+        // auth.users is a bootstrap stub; ignore when the row is missing
+      }
+    }
+    await sql`
+      update public.profiles set
+        full_name = ${fullName},
+        email = ${email},
+        contact = ${contact},
+        skills = ${skills},
+        updated_at = now()
+      where id = ${targetId}::uuid
+    `
+
+    const roleForProjects = nextRole ?? currentRole
+    if (roleChanged && nextRole) {
+      const roleError = await applyRole(targetId, nextRole)
+      if (roleError) return { ok: false, errors: [roleError] }
+      await sql`
+        insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+        values (
+          ${session.id}::uuid,
+          'role_assigned',
+          'profile',
+          ${targetId}::uuid,
+          ${JSON.stringify({ role: nextRole, previousRole: currentRole })}::jsonb
+        )
+      `
+    }
+    if (projectsChanged) {
+      const projectError = await applyProjects(targetId, nextProjects, roleForProjects)
+      if (projectError) return { ok: false, errors: [projectError] }
+      await sql`
+        insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+        values (
+          ${session.id}::uuid,
+          'projects_updated',
+          'profile',
+          ${targetId}::uuid,
+          ${JSON.stringify({ projects: nextProjects, previousProjects: currentProjects })}::jsonb
+        )
+      `
+    }
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : messages.saveFailed] }
   }
+
   revalidatePath('/team/directory')
-  revalidatePath(`/team/${session.id}`)
+  revalidatePath(`/team/${targetId}`)
+  revalidatePath('/dashboard')
+  revalidatePath('/admin')
   return { ok: true, message: messages.profileSaved }
+}
+
+/** @deprecated Prefer updateEmployeeProfile — kept for existing ProfileEditor imports. */
+export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
+  return updateEmployeeProfile(_prev, formData)
 }
