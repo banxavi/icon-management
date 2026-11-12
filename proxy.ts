@@ -5,10 +5,11 @@ import { auth, authReady } from '@/lib/auth/server'
 
 /**
  * Next.js 16 request proxy.
- * Protected portal routes use Neon Auth's official middleware so the signed
- * session_data cookie is minted/refreshed on the response (sub-ms getSession
- * fast path on later navigations). The previous hand-rolled getSession call
- * never attached Set-Cookie, so every tab click could re-hit Neon Auth upstream.
+ * GET/HEAD portal navigations use Neon Auth's official middleware so the signed
+ * session_data cookie is minted/refreshed (sub-ms getSession on later loads).
+ * Non-GET (Server Actions / form POSTs) skip that middleware and use a plain
+ * getSession gate instead — middleware redirects during cookie refresh can
+ * 307 authenticated mutations to /login.
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -53,7 +54,22 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
-  return auth.middleware({ loginUrl: '/login' })(request)
+  // Tab/page navigations — mint session_data for the RSC fast path.
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    return auth.middleware({ loginUrl: '/login' })(request)
+  }
+
+  // Server Actions / mutations: do not run auth.middleware (redirect-on-refresh
+  // can abort POSTs). Still reject clearly logged-out requests at the edge;
+  // handlers call requireSession() for the real ACL check.
+  const { data } = await auth.getSession()
+  if (shouldRedirectToLogin(pathname, Boolean(data?.user))) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+  return NextResponse.next({ request })
 }
 
 export const config = {
