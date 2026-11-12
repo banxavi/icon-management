@@ -60,8 +60,8 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
     editable.skills ||
     editable.role ||
     editable.projects
-  const assignableRoles = ROLE_CODES.filter(
-    (code) => code === role || canAssignRole({ actorRoles: session.roles, nextRole: code }),
+  const assignableRoles = ROLE_CODES.filter((code) =>
+    canAssignRole({ actorRoles: session.roles, nextRole: code, currentRole: role }),
   )
 
   return (

@@ -84,20 +84,27 @@ async function applyRole(userId: string, role: AppRole, assignedMemberIds?: stri
   return null
 }
 
-async function applyProjects(userId: string, projectNames: string[], memberRole: AppRole) {
+async function resolveProjectIds(projectNames: string[]): Promise<{ ok: true; ids: Map<string, string> } | { ok: false; error: string }> {
   const sql = getSql()
-  if (!sql) return 'Database is not configured.'
-  if (projectNames.length === 0) return 'Select at least one project.'
-
+  if (!sql) return { ok: false, error: 'Database is not configured.' }
+  if (projectNames.length === 0) return { ok: true, ids: new Map() }
   const projectRows = await sql`select id, name from public.projects where name = any(${projectNames}::text[])`
   const found = new Map(projectRows.map((row) => [String(row.name), String(row.id)]))
   for (const name of projectNames) {
-    if (!found.has(name)) return `Project "${name}" was not found.`
+    if (!found.has(name)) return { ok: false, error: `Project "${name}" was not found.` }
   }
+  return { ok: true, ids: found }
+}
+
+async function applyProjects(userId: string, projectNames: string[], memberRole: AppRole) {
+  const sql = getSql()
+  if (!sql) return 'Database is not configured.'
+  const resolved = await resolveProjectIds(projectNames)
+  if (!resolved.ok) return resolved.error
 
   await sql`delete from public.project_members where user_id = ${userId}::uuid`
   for (const name of projectNames) {
-    const projectId = found.get(name)!
+    const projectId = resolved.ids.get(name)!
     await sql`
       insert into public.project_members (user_id, project_id, member_role)
       values (${userId}::uuid, ${projectId}::uuid, ${memberRole})
@@ -107,9 +114,19 @@ async function applyProjects(userId: string, projectNames: string[], memberRole:
 }
 
 async function applyMembership(userId: string, role: AppRole, projectName: string, assignedMemberIds?: string[]) {
+  // Validate the project exists before rewriting roles / team leadership.
+  const resolved = await resolveProjectIds([projectName])
+  if (!resolved.ok) return resolved.error
   const roleError = await applyRole(userId, role, assignedMemberIds)
   if (roleError) return roleError
   return applyProjects(userId, [projectName], role)
+}
+
+function sameProjectSet(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  const left = [...a].sort()
+  const right = [...b].sort()
+  return left.every((name, index) => name === right[index])
 }
 
 export async function importMembers(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
@@ -415,20 +432,24 @@ export async function updateEmployeeProfile(_prev: AdminResult | null, formData:
   if (canSkills && skills.some((skill) => skill.length > 40)) {
     errors.push('Each skill must be at most 40 characters.')
   }
+  const roleChanged = Boolean(canRole && nextRole && nextRole !== currentRole)
+  const projectsChanged = canProjects && !sameProjectSet(nextProjects, currentProjects)
+
   if (canRole) {
     if (!nextRole || !ROLE_CODES.includes(nextRole)) {
       errors.push('Choose a valid role.')
     } else if (
-      nextRole !== currentRole &&
-      !canAssignRole({ actorRoles: session.roles, nextRole })
+      !canAssignRole({ actorRoles: session.roles, nextRole, currentRole })
     ) {
-      errors.push('Only an Admin can assign the Admin role.')
+      errors.push('You do not have permission to assign that role.')
     }
   }
-  if (canProjects && nextProjects.length === 0) {
-    errors.push('Select at least one project.')
-  }
   if (errors.length > 0) return { ok: false, errors }
+
+  if (canProjects && projectsChanged) {
+    const resolved = await resolveProjectIds(nextProjects)
+    if (!resolved.ok) return { ok: false, errors: [resolved.error] }
+  }
 
   if (canEmail && email !== String(target[0].email || '').toLowerCase()) {
     const taken = await sql`
@@ -459,13 +480,33 @@ export async function updateEmployeeProfile(_prev: AdminResult | null, formData:
     `
 
     const roleForProjects = nextRole ?? currentRole
-    if (canRole && nextRole) {
+    if (roleChanged && nextRole) {
       const roleError = await applyRole(targetId, nextRole)
       if (roleError) return { ok: false, errors: [roleError] }
+      await sql`
+        insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+        values (
+          ${session.id}::uuid,
+          'role_assigned',
+          'profile',
+          ${targetId}::uuid,
+          ${JSON.stringify({ role: nextRole, previousRole: currentRole })}::jsonb
+        )
+      `
     }
-    if (canProjects) {
+    if (projectsChanged) {
       const projectError = await applyProjects(targetId, nextProjects, roleForProjects)
       if (projectError) return { ok: false, errors: [projectError] }
+      await sql`
+        insert into public.audit_logs (actor_id, action, object_type, object_id, metadata)
+        values (
+          ${session.id}::uuid,
+          'projects_updated',
+          'profile',
+          ${targetId}::uuid,
+          ${JSON.stringify({ projects: nextProjects, previousProjects: currentProjects })}::jsonb
+        )
+      `
     }
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : messages.saveFailed] }

@@ -52,7 +52,7 @@ export function ProfileEditor({
     <Surface>
       <SurfaceHeader
         title="Update profile"
-        description="Edit every employee profile field except ID. Role and project membership update with the same save."
+        description="Edit every employee profile field except ID. Leave projects unchecked to clear memberships. Role changes follow admin / team-leader assignment rules."
       />
       <SurfaceBody>
         <form action={action} className="grid gap-4 sm:grid-cols-2">
@@ -143,6 +143,7 @@ export function ProfileEditor({
                 ))
               )}
             </fieldset>
+            <p className="mt-1 text-xs text-muted-foreground">Optional. Uncheck all to clear project membership.</p>
           </div>
 
           <div className="sm:col-span-2">

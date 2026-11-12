@@ -39,7 +39,7 @@ export function canEditProfileField(input: {
     return isAdmin
   }
 
-  // Role is sensitive: self, admin, or team leader (teammate). Assigning admin is gated separately.
+  // Role control is shown to self / admin / team leader; assignment rules are in canAssignRole.
   if (input.field === 'role') {
     if (isSelf) return true
     if (isAdmin) return true
@@ -49,11 +49,22 @@ export function canEditProfileField(input: {
   return false
 }
 
-/** Only admins may grant the admin role (matches admin account tools). */
+/**
+ * Who may assign which role. Matches admin account tools for privilege:
+ * - Admins may assign any role.
+ * - Team leaders may assign member / reviewer / document_owner (not admin or team_leader),
+ *   and may not change an admin's role.
+ * - Everyone else may only leave the current role unchanged (no self-escalation).
+ */
 export function canAssignRole(input: {
   actorRoles: AppRole[]
   nextRole: AppRole
+  currentRole: AppRole
 }): boolean {
-  if (input.nextRole === 'admin') return input.actorRoles.includes('admin')
-  return true
+  if (input.actorRoles.includes('admin')) return true
+  if (input.currentRole === 'admin') return false
+  if (input.actorRoles.includes('team_leader')) {
+    return input.nextRole === 'member' || input.nextRole === 'reviewer' || input.nextRole === 'document_owner'
+  }
+  return input.nextRole === input.currentRole
 }

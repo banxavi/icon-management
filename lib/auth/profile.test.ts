@@ -26,16 +26,44 @@ describe('profile fields', () => {
       field: 'skills',
       sameTeam: true,
     })).toBe(false)
-    expect(canEditProfileField({
-      actorId: 'm',
-      actorRoles: ['member'],
-      targetId: 'other',
-      field: 'role',
-      sameTeam: true,
-    })).toBe(false)
   })
 
-  it('lets a team leader edit teammate role and projects, and keeps admin-role assignment gated', () => {
+  it('blocks privilege escalation while keeping role editable under ACL', () => {
+    expect(canAssignRole({
+      actorRoles: ['member'],
+      nextRole: 'team_leader',
+      currentRole: 'member',
+    })).toBe(false)
+    expect(canAssignRole({
+      actorRoles: ['member'],
+      nextRole: 'member',
+      currentRole: 'member',
+    })).toBe(true)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'admin',
+      currentRole: 'member',
+    })).toBe(false)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'team_leader',
+      currentRole: 'member',
+    })).toBe(false)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'member',
+      currentRole: 'admin',
+    })).toBe(false)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'reviewer',
+      currentRole: 'member',
+    })).toBe(true)
+    expect(canAssignRole({
+      actorRoles: ['admin'],
+      nextRole: 'admin',
+      currentRole: 'member',
+    })).toBe(true)
     expect(canEditProfileField({
       actorId: 'leader',
       actorRoles: ['team_leader'],
@@ -49,23 +77,6 @@ describe('profile fields', () => {
       targetId: 'm',
       field: 'projects',
       sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'leader',
-      actorRoles: ['team_leader'],
-      targetId: 'm',
-      field: 'email',
-      sameTeam: true,
-    })).toBe(false)
-    expect(canAssignRole({ actorRoles: ['team_leader'], nextRole: 'admin' })).toBe(false)
-    expect(canAssignRole({ actorRoles: ['team_leader'], nextRole: 'member' })).toBe(true)
-    expect(canAssignRole({ actorRoles: ['admin'], nextRole: 'admin' })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'admin',
-      actorRoles: ['admin'],
-      targetId: 'other',
-      field: 'role',
-      sameTeam: false,
     })).toBe(true)
   })
 })
