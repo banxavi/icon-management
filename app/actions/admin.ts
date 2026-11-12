@@ -302,24 +302,114 @@ export async function updateMemberName(_prev: AdminResult | null, formData: Form
   return { ok: true, message: messages.nameSaved }
 }
 
-export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
+/** Update employee profile fields. Profile `id` is never accepted for mutation. */
+export async function updateEmployeeProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
   const session = await requireSession()
   const sql = getSql()
   if (!sql) return { ok: false, errors: [messages.saveFailed] }
-  const contact = String(formData.get('contact') || '').trim()
-  const skills = String(formData.get('skills') || '')
-    .split(',')
-    .map((skill) => skill.trim())
-    .filter(Boolean)
+
+  // Target is taken from userId (or self). Profile `id` is never written — reject spoofed id payloads.
+  const targetId = String(formData.get('userId') || session.id).trim()
+  if (!targetId) return { ok: false, errors: [messages.forbidden] }
+  if (formData.has('id')) {
+    const spoofedId = String(formData.get('id') || '').trim()
+    if (spoofedId && spoofedId !== targetId) {
+      return { ok: false, errors: ['Profile ID cannot be changed.'] }
+    }
+  }
+
+  const target = await sql`select id, team_id, full_name, email, contact, skills from public.profiles where id = ${targetId}::uuid limit 1`
+  if (!target[0]) return { ok: false, errors: [messages.forbidden] }
+
+  const sameTeam = Boolean(session.teamId && target[0].team_id === session.teamId)
+  const aclBase = {
+    actorId: session.id,
+    actorRoles: session.roles,
+    targetId,
+    sameTeam,
+  }
+
+  const canFullName = canEditProfileField({ ...aclBase, field: 'fullName' })
+  const canEmail = canEditProfileField({ ...aclBase, field: 'email' })
+  const canContact = canEditProfileField({ ...aclBase, field: 'contact' })
+  const canSkills = canEditProfileField({ ...aclBase, field: 'skills' })
+
+  if (!canFullName && !canEmail && !canContact && !canSkills) {
+    return { ok: false, errors: [messages.forbidden] }
+  }
+
+  const errors: string[] = []
+  const fullName = canFullName
+    ? String(formData.get('fullName') || '').trim()
+    : String(target[0].full_name || '')
+  const email = canEmail
+    ? String(formData.get('email') || '').trim().toLowerCase()
+    : String(target[0].email || '').toLowerCase()
+  const contact = canContact
+    ? String(formData.get('contact') || '').trim()
+    : (typeof target[0].contact === 'string' ? target[0].contact : '')
+  const skills = canSkills
+    ? String(formData.get('skills') || '')
+      .split(',')
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+    : (Array.isArray(target[0].skills) ? target[0].skills.map(String) : [])
+
+  if (canFullName && (fullName.length < 2 || fullName.length > 120)) {
+    errors.push('Enter a name between 2 and 120 characters.')
+  }
+  if (canEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.push('Enter a valid email address.')
+  }
+  if (canContact && contact.length > 200) {
+    errors.push('Contact must be at most 200 characters.')
+  }
+  if (canSkills && skills.length > 24) {
+    errors.push('Use at most 24 skills.')
+  }
+  if (canSkills && skills.some((skill) => skill.length > 40)) {
+    errors.push('Each skill must be at most 40 characters.')
+  }
+  if (errors.length > 0) return { ok: false, errors }
+
+  if (canEmail && email !== String(target[0].email || '').toLowerCase()) {
+    const taken = await sql`
+      select id from public.profiles
+      where lower(email) = ${email} and id is distinct from ${targetId}::uuid
+      limit 1
+    `
+    if (taken[0]) return { ok: false, errors: ['That email is already used by another account.'] }
+  }
+
   try {
+    if (canEmail && email !== String(target[0].email || '').toLowerCase()) {
+      await sql`update neon_auth."user" set email = ${email} where id = ${targetId}::uuid`
+      try {
+        await sql`update auth.users set email = ${email} where id = ${targetId}::uuid`
+      } catch {
+        // auth.users is a bootstrap stub; ignore when the row is missing
+      }
+    }
     await sql`
-      update public.profiles set contact = ${contact}, skills = ${skills}
-      where id = ${session.id}::uuid
+      update public.profiles set
+        full_name = ${fullName},
+        email = ${email},
+        contact = ${contact},
+        skills = ${skills},
+        updated_at = now()
+      where id = ${targetId}::uuid
     `
   } catch (error) {
     return { ok: false, errors: [error instanceof Error ? error.message : messages.saveFailed] }
   }
+
   revalidatePath('/team/directory')
-  revalidatePath(`/team/${session.id}`)
+  revalidatePath(`/team/${targetId}`)
+  revalidatePath('/dashboard')
   return { ok: true, message: messages.profileSaved }
+}
+
+/** @deprecated Prefer updateEmployeeProfile — kept for existing ProfileEditor imports. */
+export async function updateOwnProfile(_prev: AdminResult | null, formData: FormData): Promise<AdminResult> {
+  return updateEmployeeProfile(_prev, formData)
 }

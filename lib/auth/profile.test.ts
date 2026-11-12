@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { canEditProfileField, DIRECTORY_FIELDS, MEMBER_EDITABLE_FIELDS } from '@/lib/auth/profile'
 
 describe('profile fields', () => {
-  it('shows only the directory fields and lets a member edit contact and skills', () => {
+  it('shows directory fields and lets a member edit every profile column except id-derived role/projects', () => {
     expect(DIRECTORY_FIELDS).toEqual(['fullName', 'role', 'projects', 'email', 'contact', 'skills'])
-    expect(MEMBER_EDITABLE_FIELDS).toEqual(['contact', 'skills'])
+    expect(MEMBER_EDITABLE_FIELDS).toEqual(['fullName', 'email', 'contact', 'skills'])
     expect(canEditProfileField({
       actorId: 'm',
       actorRoles: ['member'],
@@ -18,12 +18,26 @@ describe('profile fields', () => {
       targetId: 'm',
       field: 'fullName',
       sameTeam: true,
-    })).toBe(false)
+    })).toBe(true)
     expect(canEditProfileField({
       actorId: 'm',
       actorRoles: ['member'],
       targetId: 'm',
       field: 'email',
+      sameTeam: true,
+    })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'm',
+      actorRoles: ['member'],
+      targetId: 'm',
+      field: 'skills',
+      sameTeam: true,
+    })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'm',
+      actorRoles: ['member'],
+      targetId: 'm',
+      field: 'role',
       sameTeam: true,
     })).toBe(false)
     expect(canEditProfileField({
@@ -49,6 +63,13 @@ describe('profile fields', () => {
       targetId: 'leader',
       field: 'fullName',
       sameTeam: true,
+    })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'leader',
+      actorRoles: ['team_leader'],
+      targetId: 'm',
+      field: 'email',
+      sameTeam: true,
     })).toBe(false)
     expect(canEditProfileField({
       actorId: 'leader',
@@ -62,6 +83,13 @@ describe('profile fields', () => {
       actorRoles: ['admin'],
       targetId: 'admin',
       field: 'fullName',
+      sameTeam: false,
+    })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'admin',
+      actorRoles: ['admin'],
+      targetId: 'other',
+      field: 'email',
       sameTeam: false,
     })).toBe(true)
   })
