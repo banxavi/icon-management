@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { importMembers, setAccountActive, updateAccount, updateOrgSettings, type AdminResult } from '@/app/actions/admin'
+import { AlertBanner, PageHeader } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -47,17 +48,18 @@ export function AdminPanel({
 
   return (
     <div>
-      <div className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b86f3c]">Admin</p>
-        <h1 className="mt-2 text-3xl font-semibold text-[#1b2a41]">Account administration</h1>
-        <p className="mt-2 text-sm text-slate-500">Create or update up to 17 users from CSV, deactivate accounts, and assign roles.</p>
+      <PageHeader
+        eyebrow="Admin"
+        title="Account administration"
+        description="Create or update up to 17 users from CSV, deactivate accounts, and assign roles."
+        className="mb-6"
+      />
+      <div className="mb-5 flex gap-2 border-b border-border">
+        <button type="button" onClick={() => setTab('users')} className={`border-b-2 px-4 py-3 text-sm font-medium ${tab === 'users' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}>Users</button>
+        <button type="button" onClick={() => setTab('settings')} className={`border-b-2 px-4 py-3 text-sm font-medium ${tab === 'settings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}>Report rules</button>
       </div>
-      <div className="mb-5 flex gap-2 border-b">
-        <button type="button" onClick={() => setTab('users')} className={`border-b-2 px-4 py-3 text-sm font-medium ${tab === 'users' ? 'border-[#b86f3c] text-[#b86f3c]' : 'border-transparent text-slate-500'}`}>Users</button>
-        <button type="button" onClick={() => setTab('settings')} className={`border-b-2 px-4 py-3 text-sm font-medium ${tab === 'settings' ? 'border-[#b86f3c] text-[#b86f3c]' : 'border-transparent text-slate-500'}`}>Report rules</button>
-      </div>
-      {message && <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
-      {errors.length > 0 && <ul className="mb-4 list-disc rounded-lg bg-red-50 px-8 py-3 text-sm text-red-700">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
+      {message && <AlertBanner tone="success" className="mb-4">{message}</AlertBanner>}
+      {errors.length > 0 && <AlertBanner tone="danger" className="mb-4"><ul className="list-disc pl-4">{errors.map((error) => <li key={error}>{error}</li>)}</ul></AlertBanner>}
       {tab === 'settings' ? (
         <Card>
           <CardHeader><CardTitle>Organization settings</CardTitle></CardHeader>
@@ -66,16 +68,16 @@ export function AdminPanel({
               <label>Time zone
                 <Input name="timezone" defaultValue={settings.timezone} className="mt-1" />
               </label>
-              <p className="text-slate-500">Team default is Asia/Saigon. Report windows use that zone.</p>
+              <p className="text-muted-foreground">Team default is Asia/Saigon. Report windows use that zone.</p>
               <label>Report retention (months)
                 <Input name="retentionMonths" type="number" min={12} max={12} defaultValue={12} readOnly className="mt-1" />
               </label>
-              <p className="text-slate-500">Reports are kept for 12 months.</p>
+              <p className="text-muted-foreground">Reports are kept for 12 months.</p>
               <label>Daily report window
                 <input type="hidden" name="dailyWindow" value="end_of_next_calendar_day" />
                 <Input readOnly value="End of the next calendar day (23:59:59 Asia/Saigon)" className="mt-1" />
               </label>
-              <p className="text-slate-500">Members can submit or edit until that instant. Later writes are rejected. There is no approval step and no admin override.</p>
+              <p className="text-muted-foreground">Members can submit or edit until that instant. Later writes are rejected. There is no approval step and no admin override.</p>
               <fieldset>
                 <legend>Weekly report deadline</legend>
                 <div className="mt-1 flex flex-wrap gap-2">
@@ -85,7 +87,7 @@ export function AdminPanel({
                   <Input name="weeklyDeadlineTime" defaultValue={settings.weeklyDeadlineTime} className="w-28" aria-label="Weekly deadline time" />
                 </div>
               </fieldset>
-              <p className="text-slate-500">Default is Friday 17:00 in the time zone above. Each member still has one weekly report per week.</p>
+              <p className="text-muted-foreground">Default is Friday 17:00 in the time zone above. Each member still has one weekly report per week.</p>
               <label>Upload limit (MB)
                 <Input name="maxUploadMb" type="number" min={1} max={50} defaultValue={settings.maxUploadMb} className="mt-1" />
               </label>
@@ -100,8 +102,8 @@ export function AdminPanel({
                   ))}
                 </div>
               </fieldset>
-              <p className="text-slate-500">Default report viewers are the Team Leader and users with the Reviewer role. Assign them on the Users tab.</p>
-              <Button type="submit" className="w-fit bg-[#1b2a41]">Save settings</Button>
+              <p className="text-muted-foreground">Default report viewers are the Team Leader and users with the Reviewer role. Assign them on the Users tab.</p>
+              <Button type="submit">Save settings</Button>
             </form>
           </CardContent>
         </Card>
@@ -110,7 +112,7 @@ export function AdminPanel({
           <Card>
             <CardHeader><CardTitle>Import CSV</CardTitle></CardHeader>
             <CardContent>
-              <p className="mb-3 text-sm text-slate-500">Columns: full_name, email, role, project. At most 17 rows. New accounts receive a Supabase invite email. Deactivating an account keeps historical reports. Document owner upload folders are assigned on the Documents page.</p>
+              <p className="mb-3 text-sm text-muted-foreground">Columns: full_name, email, role, project. At most 17 rows. New accounts receive a Supabase invite email. Deactivating an account keeps historical reports. Document owner upload folders are assigned on the Documents page.</p>
               <form action={async (formData) => show(await importMembers(null, formData))} className="flex flex-wrap items-center gap-3">
                 <input name="file" type="file" accept=".csv,text/csv" required className="text-sm" aria-label="CSV file" />
                 <Button type="submit">Import</Button>
@@ -126,7 +128,7 @@ export function AdminPanel({
                   <input type="hidden" name="userId" value={user.id} />
                   <div>
                     <p className="font-medium">{user.fullName}</p>
-                    <p className="text-sm text-slate-500">{user.email}</p>
+                    <p className="text-sm text-muted-foreground">{user.email}</p>
                     <p className="mt-1 text-xs uppercase text-slate-400">{user.status === 'active' ? 'Active' : 'Deactivated'}</p>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -152,7 +154,7 @@ export function AdminPanel({
                       </div>
                     </fieldset>
                     <div className="flex gap-2">
-                      <Button type="submit" className="bg-[#1b2a41]">Save role</Button>
+                      <Button type="submit">Save role</Button>
                     </div>
                   </div>
                 </form>

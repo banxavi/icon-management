@@ -4,9 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell } from 'lucide-react'
 import { markAllNotificationsRead, markNotificationRead } from '@/app/actions/notifications'
+import { EmptyState, PageHeader, Surface, SurfaceBody } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { messages } from '@/lib/messages'
+import { cn } from '@/lib/utils'
 
 export type Notice = {
   id: string
@@ -34,30 +35,49 @@ export function NotificationCenter({ items }: { items: Notice[] }) {
   }
 
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b86f3c]">Inbox</p>
-          <h1 className="mt-2 text-3xl font-semibold text-[#1b2a41]">Notifications</h1>
-          <p className="mt-2 text-sm text-slate-500">{messages.notificationHistory}</p>
-        </div>
-        <Button variant="outline" onClick={() => void readAll()}>Mark all as read</Button>
-      </div>
-      <Card className="max-w-3xl">
-        <CardContent className="p-0">
-          {visible.length === 0 && <p className="p-6 text-sm text-slate-500">No notifications yet.</p>}
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        eyebrow="Inbox"
+        title="Notifications"
+        description={messages.notificationHistory}
+        actions={
+          <Button variant="outline" onClick={() => void readAll()}>
+            Mark all as read
+          </Button>
+        }
+      />
+      <Surface className="max-w-3xl">
+        <SurfaceBody className="p-0">
+          {visible.length === 0 ? <EmptyState title="No notifications yet." className="m-4" /> : null}
           {visible.map((item) => (
-            <button key={item.id} type="button" onClick={() => void read(item.id)} className="flex w-full gap-4 border-b p-5 text-left hover:bg-slate-50">
-              <span className={`mt-1 flex size-9 shrink-0 items-center justify-center rounded-full ${item.unread ? 'bg-[#fdf0e6] text-[#b86f3c]' : 'bg-slate-100 text-slate-400'}`}><Bell className="size-4" /></span>
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => void read(item.id)}
+              className="flex w-full gap-4 border-b border-border/60 p-5 text-left transition-colors duration-150 ease-out hover:bg-muted/40"
+            >
+              <span
+                className={cn(
+                  'mt-1 flex size-9 shrink-0 items-center justify-center rounded-full',
+                  item.unread ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                )}
+              >
+                <Bell className="size-4" />
+              </span>
               <span className="flex-1">
-                <span className="flex items-center gap-2 font-medium text-[#1b2a41]">{item.title}{item.unread && <span className="size-2 rounded-full bg-[#b86f3c]" />}</span>
-                <span className="mt-1 block text-sm text-slate-500">{item.body}</span>
-                <span className="mt-2 block text-xs text-slate-400">{new Date(item.createdAt).toLocaleString('en-US', { timeZone: 'Asia/Saigon' })}</span>
+                <span className="flex items-center gap-2 font-medium text-foreground">
+                  {item.title}
+                  {item.unread ? <span className="size-2 rounded-full bg-primary" /> : null}
+                </span>
+                <span className="mt-1 block text-sm text-pretty text-muted-foreground">{item.body}</span>
+                <span className="mt-2 block text-xs text-muted-foreground">
+                  {new Date(item.createdAt).toLocaleString('en-US', { timeZone: 'Asia/Saigon' })}
+                </span>
               </span>
             </button>
           ))}
-        </CardContent>
-      </Card>
+        </SurfaceBody>
+      </Surface>
     </div>
   )
 }

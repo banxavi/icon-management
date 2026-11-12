@@ -16,7 +16,7 @@ export function ProfileEditor({ contact, skills }: { contact: string; skills: st
       <label className="text-sm font-medium">Skills
         <Input name="skills" defaultValue={skills} className="mt-2" placeholder="Comma-separated" />
       </label>
-      <Button type="submit" disabled={pending} className="w-fit bg-[#1b2a41]">Save changes</Button>
+      <Button type="submit" disabled={pending}>Save changes</Button>
       {state?.ok && <p className="text-sm text-emerald-700">{state.message}</p>}
       {state && !state.ok && <p className="text-sm text-red-600">{state.errors.join(' ')}</p>}
     </form>
@@ -31,7 +31,7 @@ export function NameEditor({ userId, fullName }: { userId: string; fullName: str
       <label className="text-sm font-medium">Name
         <Input name="fullName" defaultValue={fullName} className="mt-2" />
       </label>
-      <Button type="submit" disabled={pending} className="bg-[#1b2a41]">Save name</Button>
+      <Button type="submit" disabled={pending}>Save name</Button>
       {state?.ok && <p className="text-sm text-emerald-700">{state.message}</p>}
       {state && !state.ok && <p className="text-sm text-red-600">{state.errors.join(' ')}</p>}
     </form>

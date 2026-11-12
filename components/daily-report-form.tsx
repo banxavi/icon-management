@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { Check, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadOwnReport, saveDailyReport } from '@/app/actions/reports'
+import { AlertBanner, Surface, SurfaceBody, SurfaceHeader } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -87,21 +87,16 @@ export function DailyReportForm({ projects, initialDate, minDate, maxDate, initi
   }, [reportDate, projectId, workStatus, wfhReason, doneToday, nextPlan, blockers])
 
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-xl">Daily report · {reportDate}</CardTitle>
-            <CardDescription className="mt-2">A short update for the team. One report per person per date.</CardDescription>
-          </div>
-          <p className="text-xs text-slate-400">{savedAt ? `Draft saved at ${savedAt}` : 'Draft saves automatically'}</p>
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">
-        <div className="flex items-start gap-2 rounded-xl bg-orange-50 p-3 text-sm text-orange-800">
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <span>You can submit or edit until the end of the next calendar day ({timeZone}). After that, changes are rejected. There is no admin override.</span>
-        </div>
+    <Surface>
+      <SurfaceHeader
+        title={`Daily report · ${reportDate}`}
+        description="A short update for the team. One report per person per date."
+        actions={<p className="text-xs text-muted-foreground">{savedAt ? `Draft saved at ${savedAt}` : 'Draft saves automatically'}</p>}
+      />
+      <SurfaceBody className="flex flex-col gap-6">
+        <AlertBanner tone="info" icon={<Info className="size-4" />}>
+          You can submit or edit until the end of the next calendar day ({timeZone}). After that, changes are rejected. There is no admin override.
+        </AlertBanner>
         {status === 'submitted' && submittedAt && (
           <p className="text-sm text-emerald-700">Submitted · {new Date(submittedAt).toLocaleString('en-US', { timeZone: 'Asia/Saigon' })}</p>
         )}
@@ -120,7 +115,7 @@ export function DailyReportForm({ projects, initialDate, minDate, maxDate, initi
             {errors.projectId && <p className="text-sm text-red-600">{errors.projectId}</p>}
           </div>
         </div>
-        <fieldset className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4">
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
           <legend className="px-1 text-sm font-medium">Work status</legend>
           <label className="flex items-center gap-2 text-sm"><input type="radio" name="work-status" checked={workStatus === 'office'} onChange={() => setWorkStatus('office')} /> Office</label>
           <label className="flex items-center gap-2 text-sm"><input type="radio" name="work-status" checked={workStatus === 'wfh'} onChange={() => setWorkStatus('wfh')} /> WFH</label>
@@ -143,17 +138,17 @@ export function DailyReportForm({ projects, initialDate, minDate, maxDate, initi
           {errors.nextPlan && <p className="text-sm text-red-600">{errors.nextPlan}</p>}
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="blocker">Blockers <span className="font-normal text-slate-400">(optional)</span></Label>
+          <Label htmlFor="blocker">Blockers <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <Textarea id="blocker" value={blockers} onChange={(event) => setBlockers(event.target.value)} placeholder="Anything the team should help with?" rows={3} />
         </div>
-        <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+        <div className="flex justify-end gap-3 border-t border-border/60 pt-5">
           <Button type="button" variant="outline" disabled={pending} onClick={() => void persist('draft')}>Save draft</Button>
-          <Button type="button" disabled={pending} onClick={() => void persist('submit')} className="gap-2 bg-[#1b2a41] hover:bg-[#263b59]">
+          <Button type="button" disabled={pending} onClick={() => void persist('submit')} className="gap-2">
             <Check className="size-4" />
             {status === 'submitted' ? 'Update report' : 'Submit report'}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </SurfaceBody>
+    </Surface>
   )
 }

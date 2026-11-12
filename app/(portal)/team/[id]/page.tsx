@@ -24,8 +24,8 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
   })
   return (
     <div className="max-w-3xl">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b86f3c]">Profile</p>
-      <h1 className="mt-3 text-3xl font-semibold text-[#1b2a41]">{person.fullName}</h1>
+      <p className="text-xs font-semibold uppercase text-primary">Profile</p>
+      <h1 className="mt-3 font-display text-3xl font-semibold text-foreground">{person.fullName}</h1>
       <p className="mt-1 text-sm text-slate-500">{person.roles.join(', ') || 'Member'}</p>
       <Card className="mt-8">
         <CardHeader><CardTitle>Directory fields</CardTitle></CardHeader>
