@@ -155,7 +155,7 @@ export async function loadTeamBoard(reportDate: string) {
     return { forbidden: false as const, reportDate, rows: [], projects: [] as { id: string; name: string }[] }
   }
 
-  const [people, reports, projects, memberships] = await Promise.all([
+  const [people, reports, projects, memberships] = await sql.transaction([
     sql`select id, full_name, email from public.profiles where team_id = ${session.teamId}::uuid order by full_name`,
     sql`
       select dr.*, p.name as project_name
@@ -243,7 +243,7 @@ export async function loadWeeklyContext(weekStart?: string): Promise<WeeklyLoadR
   const sql = getSql()
   if (!sql) return { ok: false, error: messages.saveFailed }
   const weekEnd = shiftCalendarDate(selected, 6)
-  const [reportRows, dailies] = await Promise.all([
+  const [reportRows, dailies] = await sql.transaction([
     sql`select * from public.weekly_reports where user_id = ${session.id}::uuid and week_start = ${selected}::date limit 1`,
     sql`
       select report_date, done_today from public.daily_reports

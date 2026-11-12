@@ -66,11 +66,14 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
   const canAdminister = canAdministerFolders(session.roles)
 
   let folderRows: Record<string, unknown>[] = []
-  let setting: Record<string, unknown> | undefined
+  let settingRows: Record<string, unknown>[] = []
+  let grantRows: Record<string, unknown>[] = []
   try {
-    ;[folderRows, setting] = await Promise.all([
+    // One HTTP round-trip for the three independent lookups.
+    ;[folderRows, settingRows, grantRows] = await sql.transaction([
       sql`select id, name, visibility, team_id from public.document_folders order by name`,
-      sql`select max_upload_mb, allowed_extensions from public.org_settings limit 1`.then((rows) => rows[0]),
+      sql`select max_upload_mb, allowed_extensions from public.org_settings limit 1`,
+      sql`select folder_id, user_id, access from public.document_folder_grants`,
     ])
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
@@ -78,7 +81,7 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
     return { ...empty, configured: !missing, loadError: missing ? null : 'Could not load documents.', canAdminister }
   }
 
-  const grantRows = await sql`select folder_id, user_id, access from public.document_folder_grants`
+  const setting = settingRows[0]
   const grants: FolderGrant[] = grantRows.flatMap((row) => {
     const access = row.access === 'manage' ? 'manage' : row.access === 'view' ? 'view' : null
     if (!access) return []
@@ -114,51 +117,54 @@ export async function loadDocumentLibrary(session: SessionUser): Promise<Documen
   })
 
   const visibleFolderIds = new Set(folders.map((folder) => folder.id))
-  const docs = await sql`
-    select id, name, tags, folder_id, updated_at, current_version_id
-    from public.documents
-    where current_version_id is not null
-    order by updated_at desc
-  `
-  const visibleDocs = docs.filter((doc) => visibleFolderIds.has(String(doc.folder_id || '')))
-  const versionIds = visibleDocs.map((doc) => String(doc.current_version_id)).filter(Boolean)
-  const versions = versionIds.length
-    ? await sql`
-        select id, version_label, file_name, created_at, uploaded_by
-        from public.document_versions
-        where id = any(${versionIds}::uuid[])
-      `
-    : []
-  const versionById = new Map(versions.map((version) => [String(version.id), version]))
-  const uploaderIds = [...new Set(versions.map((version) => String(version.uploaded_by || '')).filter(Boolean))]
-  const uploaders = uploaderIds.length
-    ? await sql`select id, full_name from public.profiles where id = any(${uploaderIds}::uuid[])`
-    : []
-  const uploaderNames = new Map(uploaders.map((person) => [String(person.id), String(person.full_name)]))
   const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]))
 
-  const documents: LibraryDocument[] = visibleDocs.map((doc) => {
-    const version = versionById.get(String(doc.current_version_id))
-    const uploaderId = version ? String(version.uploaded_by || '') : ''
-    return {
+  // Collapse docs → versions → uploaders into one joined query; fetch admin people in parallel.
+  const docsPromise = sql`
+    select
+      d.id,
+      d.name,
+      d.tags,
+      d.folder_id,
+      d.updated_at,
+      d.current_version_id,
+      v.version_label,
+      v.file_name,
+      v.created_at as version_created_at,
+      pr.full_name as uploader_name
+    from public.documents d
+    left join public.document_versions v on v.id = d.current_version_id
+    left join public.profiles pr on pr.id = v.uploaded_by
+    where d.current_version_id is not null
+    order by d.updated_at desc
+  `
+
+  const peoplePromise = canAdminister
+    ? sql.transaction([
+        sql`select id, full_name from public.profiles order by full_name`,
+        sql`select ur.user_id, r.code from public.user_roles ur join public.roles r on r.id = ur.role_id`,
+      ])
+    : Promise.resolve(null)
+
+  const [docs, peopleBundle] = await Promise.all([docsPromise, peoplePromise])
+
+  const documents: LibraryDocument[] = docs
+    .filter((doc) => visibleFolderIds.has(String(doc.folder_id || '')))
+    .map((doc) => ({
       id: String(doc.id),
       name: String(doc.name),
       folderId: String(doc.folder_id || ''),
       folderName: folderNames.get(String(doc.folder_id || '')) || 'Folder',
       tags: asStringArray(doc.tags),
-      versionLabel: version ? String(version.version_label || '') : '',
-      updatedAt: String(doc.updated_at || version?.created_at || ''),
-      uploader: uploaderNames.get(uploaderId) || 'Member',
-      fileName: version ? String(version.file_name || '') : '',
-    }
-  })
+      versionLabel: doc.version_label ? String(doc.version_label) : '',
+      updatedAt: String(doc.updated_at || doc.version_created_at || ''),
+      uploader: doc.uploader_name ? String(doc.uploader_name) : 'Member',
+      fileName: doc.file_name ? String(doc.file_name) : '',
+    }))
 
   let people: LibraryPerson[] = []
-  if (canAdminister) {
-    const [profiles, roleRows] = await Promise.all([
-      sql`select id, full_name from public.profiles order by full_name`,
-      sql`select ur.user_id, r.code from public.user_roles ur join public.roles r on r.id = ur.role_id`,
-    ])
+  if (peopleBundle) {
+    const [profiles, roleRows] = peopleBundle
     const rolesByUser = new Map<string, AppRole[]>()
     for (const row of roleRows) {
       const code = asRole(row.code)

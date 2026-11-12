@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { getSql } from '@/lib/db'
 import { DEFAULT_WEEKLY_DEADLINE_TIME, DEFAULT_WEEKLY_DEADLINE_WEEKDAY } from '@/lib/reports/weekly'
 import { REPORT_TIMEZONE } from '@/lib/reports/window'
@@ -14,7 +15,7 @@ const fallback: ReportSettings = {
   weeklyDeadlineTime: DEFAULT_WEEKLY_DEADLINE_TIME,
 }
 
-export async function loadReportSettings(): Promise<ReportSettings> {
+export const loadReportSettings = cache(async (): Promise<ReportSettings> => {
   const sql = getSql()
   if (!sql) return fallback
   const rows = await sql`
@@ -31,4 +32,4 @@ export async function loadReportSettings(): Promise<ReportSettings> {
     weeklyDeadlineWeekday: Number.isInteger(weekday) && weekday >= 0 && weekday <= 6 ? weekday : fallback.weeklyDeadlineWeekday,
     weeklyDeadlineTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : fallback.weeklyDeadlineTime,
   }
-}
+})

@@ -4,7 +4,11 @@ import { isPublicPath, shouldRedirectToLogin, skipsSessionRefresh } from '@/lib/
 import { auth, authReady } from '@/lib/auth/server'
 
 /**
- * Next.js 16 request proxy. Uses Neon Auth session; public paths and /api/auth stay open.
+ * Next.js 16 request proxy.
+ * Protected portal routes use Neon Auth's official middleware so the signed
+ * session_data cookie is minted/refreshed on the response (sub-ms getSession
+ * fast path on later navigations). The previous hand-rolled getSession call
+ * never attached Set-Cookie, so every tab click could re-hit Neon Auth upstream.
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -23,29 +27,33 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request })
   }
 
-  if (isPublicPath(pathname) || pathname.startsWith('/api/')) {
-    // Still let Neon Auth middleware refresh cookies on public pages when present.
-    if (pathname === '/login') {
-      const { data } = await auth.getSession()
-      if (data?.user) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        url.search = ''
-        return NextResponse.redirect(url)
-      }
+  // API handlers enforce their own auth; do not gate them at the edge.
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next({ request })
+  }
+
+  // Auth callback / sign-out own cookies; leave them alone.
+  if (pathname.startsWith('/auth/')) {
+    return NextResponse.next({ request })
+  }
+
+  // Logged-in users hitting /login go to the portal.
+  if (pathname === '/login') {
+    const { data } = await auth.getSession()
+    if (data?.user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      url.search = ''
+      return NextResponse.redirect(url)
     }
     return NextResponse.next({ request })
   }
 
-  const { data } = await auth.getSession()
-  if (shouldRedirectToLogin(pathname, Boolean(data?.user))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    url.search = ''
-    return NextResponse.redirect(url)
+  if (isPublicPath(pathname)) {
+    return NextResponse.next({ request })
   }
 
-  return NextResponse.next({ request })
+  return auth.middleware({ loginUrl: '/login' })(request)
 }
 
 export const config = {
