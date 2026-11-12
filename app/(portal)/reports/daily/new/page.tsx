@@ -3,6 +3,7 @@ import { canSubmitReport } from '@/lib/auth/permissions'
 import { loadProjects } from '@/lib/data/load'
 import { Forbidden } from '@/components/forbidden'
 import { DailyReportForm } from '@/components/daily-report-form'
+import { PageHeader } from '@/components/layout'
 import { getSql } from '@/lib/db'
 import { mapReport } from '@/lib/data/rows'
 import { loadReportSettings } from '@/lib/reports/org'
@@ -31,11 +32,7 @@ export default async function NewDailyReportPage() {
   const data = rows[0]
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <div>
-        <p className="text-sm font-medium text-[#e2894b]">DAILY REPORT</p>
-        <h1 className="mt-1 text-3xl font-semibold">Submit a daily report</h1>
-        <p className="mt-2 text-slate-500">Share a short update so the team can see progress. Declare WFH here, with a reason.</p>
-      </div>
+      <PageHeader eyebrow="Daily report" title="Submit a daily report" description="Share a short update so the team can see progress. Declare WFH here, with a reason." />
       <DailyReportForm projects={projects} initialDate={today} minDate={bounds.min} maxDate={bounds.max} initialReport={data ? mapReport({ ...data, projects: { name: data.project_name } }) : null} timeZone={settings.timeZone} />
     </div>
   )

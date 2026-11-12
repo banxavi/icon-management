@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { loadWeeklyContext, saveWeeklyReport, type WeeklyContext } from '@/app/actions/reports'
+import { Surface, SurfaceBody, SurfaceHeader } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { messages } from '@/lib/messages'
@@ -67,12 +67,12 @@ export function WeeklyReportForm({ initial }: Props) {
   const submittedAt = context.report?.submittedAt
 
   return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-xl">Weekly report · {context.weekLabel}</CardTitle>
-        <CardDescription className="mt-2">One report per member per week. Deadline: {context.deadlineLabel}.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">
+    <Surface>
+      <SurfaceHeader
+        title={`Weekly report · ${context.weekLabel}`}
+        description={`One report per member per week. Deadline: ${context.deadlineLabel}.`}
+      />
+      <SurfaceBody className="flex flex-col gap-6">
         {context.pastDeadline && (
           <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
             The deadline for this week was {context.deadlineLabel}. You can still save this report.
@@ -96,28 +96,28 @@ export function WeeklyReportForm({ initial }: Props) {
           </select>
           {errors.weekStart && <p className="text-sm text-red-600">{errors.weekStart}</p>}
         </div>
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium">Suggested from Done today</p>
             <Button type="button" variant="outline" disabled={pending || !context.suggestion} onClick={() => setHighlights(context.suggestion)}>
               Use suggestion
             </Button>
           </div>
-          <p className="whitespace-pre-wrap text-sm text-slate-600">{context.suggestion || 'No Done today notes in this week yet.'}</p>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{context.suggestion || 'No Done today notes in this week yet.'}</p>
         </div>
         <Field id="highlights" label="Highlights" required value={highlights} error={errors.highlights} onChange={setHighlights} placeholder="What stood out this week?" />
         <Field id="progress" label="Main progress" required value={progress} error={errors.progress} onChange={setProgress} placeholder="Which goals moved forward?" />
         <Field id="risks" label="Risks" required value={risks} error={errors.risks} onChange={setRisks} placeholder="What should the team watch?" />
         <Field id="next-week" label="Next week" required value={nextWeek} error={errors.nextWeek} onChange={setNextWeek} placeholder="What is the plan for next week?" />
-        <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+        <div className="flex justify-end gap-3 border-t border-border/60 pt-5">
           <Button type="button" variant="outline" disabled={pending} onClick={() => void persist('draft')}>Save draft</Button>
-          <Button type="button" disabled={pending} onClick={() => void persist('submit')} className="gap-2 bg-[#1b2a41] hover:bg-[#263b59]">
+          <Button type="button" disabled={pending} onClick={() => void persist('submit')} className="gap-2">
             <Check className="size-4" />
             {context.report?.status === 'submitted' ? 'Update report' : 'Submit report'}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </SurfaceBody>
+    </Surface>
   )
 }
 

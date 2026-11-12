@@ -33,7 +33,7 @@ export function NotificationBell({ unreadCount, notices }: { unreadCount: number
       >
         <Bell className="size-4" />
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-[#e2894b] px-1 text-[10px] font-semibold leading-4 text-white">
+          <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-white">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -44,11 +44,11 @@ export function NotificationBell({ unreadCount, notices }: { unreadCount: number
           {unreadItems.length === 0 && <p className="px-2 py-3 text-sm text-slate-500">No unread notifications.</p>}
           {unreadItems.map((item) => (
             <button key={item.id} type="button" onClick={() => void read(item.id)} className="block w-full rounded-lg px-2 py-2 text-left hover:bg-slate-50">
-              <span className="block text-sm font-medium text-[#1b2a41]">{item.title}</span>
+              <span className="block text-sm font-medium text-foreground">{item.title}</span>
               <span className="mt-0.5 block text-xs text-slate-500">{item.body}</span>
             </button>
           ))}
-          <Link href="/notifications" onClick={() => setOpen(false)} className="mt-1 block rounded-lg px-2 py-2 text-sm font-medium text-[#e2894b] hover:bg-slate-50">
+          <Link href="/notifications" onClick={() => setOpen(false)} className="mt-1 block rounded-lg px-2 py-2 text-sm font-medium text-primary hover:bg-slate-50">
             View all notifications
           </Link>
         </div>

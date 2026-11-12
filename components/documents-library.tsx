@@ -11,6 +11,7 @@ import {
   saveFolderAccess,
   type DocumentDetail,
 } from '@/app/actions/documents'
+import { AlertBanner, EmptyState, PageHeader } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -107,7 +108,7 @@ export function DocumentsLibrary({
     return (
       <div>
         <LibraryHeading />
-        <p className="mt-6 text-sm text-slate-600">The document library is not available until the latest database migration is applied.</p>
+        <p className="mt-6 text-sm text-muted-foreground">The document library is not available until the latest database migration is applied.</p>
       </div>
     )
   }
@@ -115,12 +116,12 @@ export function DocumentsLibrary({
   return (
     <div>
       <LibraryHeading />
-      <p className="mt-2 max-w-3xl text-sm text-slate-500">
+      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
         Members see team folders, plus any restricted folder a Team Leader or Admin has granted. Reviewers, document owners, the team leader, and admins can view every folder on the team. Upload is limited to the team leader, an admin, or a document owner assigned to that folder.
       </p>
       {loadError && <p className="mt-4 text-sm text-red-600">{loadError}</p>}
-      {message && <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
-      {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {message && <AlertBanner tone="success" className="mt-4">{message}</AlertBanner>}
+      {error && <AlertBanner tone="danger" className="mt-4">{error}</AlertBanner>}
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         <Card className="h-fit lg:w-60">
           <CardHeader><CardTitle className="text-sm">Folders</CardTitle></CardHeader>
@@ -141,7 +142,7 @@ export function DocumentsLibrary({
             <Card className="mb-4">
               <CardHeader><CardTitle className="text-base">Upload</CardTitle></CardHeader>
               <CardContent>
-                <p className="mb-3 text-sm text-slate-500">Up to {maxUploadMb} MB. Allowed: {allowedExtensions.join(', ')}. A new file keeps the previous versions.</p>
+                <p className="mb-3 text-sm text-muted-foreground">Up to {maxUploadMb} MB. Allowed: {allowedExtensions.join(', ')}. A new file keeps the previous versions.</p>
                 <form
                   className="grid gap-3 md:grid-cols-2"
                   onSubmit={async (event) => {
@@ -171,34 +172,34 @@ export function DocumentsLibrary({
                   <label className="text-sm md:col-span-2">File
                     <input name="file" type="file" required accept={acceptAttribute(allowedExtensions)} className="mt-1 block w-full text-sm" />
                   </label>
-                  <Button type="submit" disabled={pending} className="w-fit bg-[#1b2a41]">Upload</Button>
+                  <Button type="submit" disabled={pending}>Upload</Button>
                 </form>
               </CardContent>
             </Card>
           )}
           {manageable.length === 0 && folders.some((folder) => folder.canManage) === false && (
-            <p className="mb-4 text-sm text-slate-500">You can view documents in the folders listed here. Upload is available to a Document Owner on an assigned folder, the Team Leader, or an Admin.</p>
+            <p className="mb-4 text-sm text-muted-foreground">You can view documents in the folders listed here. Upload is available to a Document Owner on an assigned folder, the Team Leader, or an Admin.</p>
           )}
           <div className="relative mb-4">
-            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name or tag..." className="bg-white pl-9" aria-label="Search documents" />
           </div>
           <Card>
             <CardContent className="p-0">
-              {visible.length === 0 && <p className="p-6 text-sm text-slate-500">No documents in this folder yet.</p>}
+              {visible.length === 0 && <EmptyState title="No documents in this folder yet." className="m-4 border-0 bg-transparent" />}
               {visible.map((document) => (
-                <button key={document.id} type="button" onClick={() => void openDocument(document.id)} className="grid w-full grid-cols-1 gap-2 border-b px-5 py-4 text-left hover:bg-slate-50 md:grid-cols-[1fr_90px_160px_180px] md:items-center">
+                <button key={document.id} type="button" onClick={() => void openDocument(document.id)} className="grid w-full grid-cols-1 gap-2 border-b px-5 py-4 text-left hover:bg-muted/40 md:grid-cols-[1fr_90px_160px_180px] md:items-center">
                   <span className="flex items-start gap-3">
                     <FileText className="mt-0.5 size-4" />
                     <span>
                       <span className="block font-medium">{document.name}</span>
-                      <span className="mt-1 block text-xs text-slate-400">{document.folderName}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{document.folderName}</span>
                       <span className="mt-1 flex flex-wrap gap-1">{document.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</span>
                     </span>
                   </span>
-                  <span className="text-sm text-slate-600">{document.versionLabel}</span>
-                  <span className="text-sm text-slate-600">{document.uploader}</span>
-                  <span className="text-sm text-slate-500">{formatWhen(document.updatedAt)}</span>
+                  <span className="text-sm text-muted-foreground">{document.versionLabel}</span>
+                  <span className="text-sm text-muted-foreground">{document.uploader}</span>
+                  <span className="text-sm text-muted-foreground">{formatWhen(document.updatedAt)}</span>
                 </button>
               ))}
             </CardContent>
@@ -224,7 +225,7 @@ export function DocumentsLibrary({
           <SheetHeader><SheetTitle>{detail?.name || 'Document'}</SheetTitle></SheetHeader>
           {detailError && <p className="mt-6 text-sm text-red-600">{detailError}</p>}
           {detail && (
-            <div className="mt-6 flex flex-col gap-4 text-sm text-slate-600">
+            <div className="mt-6 flex flex-col gap-4 text-sm text-muted-foreground">
               <p>{detail.folderName} · {detail.versions.find((version) => version.current)?.label} · updated {formatWhen(detail.versions.find((version) => version.current)?.createdAt || '')}</p>
               <p>Uploaded by {detail.versions.find((version) => version.current)?.uploader}</p>
               <Preview version={detail.versions.find((version) => version.current) ?? null} />
@@ -240,20 +241,20 @@ export function DocumentsLibrary({
                     if (ok) await openDocument(detail.id)
                   }}
                 >
-                  <p className="font-medium text-[#1b2a41]">Upload a new version</p>
+                  <p className="font-medium text-foreground">Upload a new version</p>
                   <input name="file" type="file" required accept={acceptAttribute(allowedExtensions)} className="text-sm" />
-                  <Button type="submit" disabled={pending} className="w-fit bg-[#1b2a41]">Save version</Button>
+                  <Button type="submit" disabled={pending}>Save version</Button>
                 </form>
               )}
               <div>
-                <p className="font-medium text-[#1b2a41]">Version history</p>
+                <p className="font-medium text-foreground">Version history</p>
                 <ul className="mt-2 flex flex-col gap-2">
                   {detail.versions.map((version) => (
                     <li key={version.id} className="rounded-lg border px-3 py-2">
-                      <p className="font-medium text-[#1b2a41]">{version.label}{version.current ? ' · Latest' : ''}{version.restored ? ' · Restored' : ''}</p>
+                      <p className="font-medium text-foreground">{version.label}{version.current ? ' · Latest' : ''}{version.restored ? ' · Restored' : ''}</p>
                       <p>{version.fileName} · {formatSize(version.byteSize)}</p>
                       <p>{version.uploader} · {formatWhen(version.createdAt)}</p>
-                      {version.signedUrl && <a className="text-[#b86f3c] underline" href={version.signedUrl}>Download</a>}
+                      {version.signedUrl && <a className="text-primary underline" href={version.signedUrl}>Download</a>}
                       {detail.canManage && !version.current && (
                         <Button
                           type="button"
@@ -289,17 +290,12 @@ export function DocumentsLibrary({
 }
 
 function LibraryHeading() {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b86f3c]">Documents</p>
-      <h1 className="mt-2 text-3xl font-semibold text-[#1b2a41]">Document library</h1>
-    </div>
-  )
+  return <PageHeader eyebrow="Documents" title="Document library" />
 }
 
 function FolderButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left ${active ? 'bg-[#fdf0e6] font-medium text-[#b86f3c]' : 'text-slate-600 hover:bg-slate-50'}`}>
+    <button type="button" onClick={onClick} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left ${active ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/50'}`}>
       <Folder className="size-4 shrink-0" />
       <span>{label}</span>
     </button>
@@ -384,7 +380,7 @@ function FolderAdmin({
             </label>
             <fieldset className="text-sm">
               <legend className="mb-2 font-medium">Member view grants</legend>
-              <p className="mb-2 text-slate-500">Used when the folder is restricted. Other roles on the team can still view it.</p>
+              <p className="mb-2 text-muted-foreground">Used when the folder is restricted. Other roles on the team can still view it.</p>
               <div className="grid max-h-40 gap-1 overflow-auto rounded-lg border p-3 sm:grid-cols-2">
                 {people.map((person) => (
                   <label key={person.id} className="flex items-center gap-2">
@@ -397,7 +393,7 @@ function FolderAdmin({
             <fieldset className="text-sm">
               <legend className="mb-2 font-medium">Document owners who can upload</legend>
               <div className="grid gap-1 rounded-lg border p-3">
-                {owners.length === 0 && <p className="text-slate-500">No document owner accounts yet. Assign that role in Admin.</p>}
+                {owners.length === 0 && <p className="text-muted-foreground">No document owner accounts yet. Assign that role in Admin.</p>}
                 {owners.map((person) => (
                   <label key={person.id} className="flex items-center gap-2">
                     <input type="checkbox" name="manage" value={person.id} defaultChecked={grants.some((grant) => grant.folderId === folder.id && grant.userId === person.id && grant.access === 'manage')} />
@@ -406,7 +402,7 @@ function FolderAdmin({
                 ))}
               </div>
             </fieldset>
-            <Button type="submit" disabled={pending} className="w-fit bg-[#1b2a41]">Save folder access</Button>
+            <Button type="submit" disabled={pending}>Save folder access</Button>
           </form>
         )}
       </CardContent>
