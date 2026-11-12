@@ -28,7 +28,7 @@ describe('profile fields', () => {
     })).toBe(false)
   })
 
-  it('blocks privilege escalation while keeping role editable under ACL', () => {
+  it('blocks privilege escalation while always allowing the current role to be kept', () => {
     expect(canAssignRole({
       actorRoles: ['member'],
       nextRole: 'team_leader',
@@ -49,6 +49,16 @@ describe('profile fields', () => {
       nextRole: 'team_leader',
       currentRole: 'member',
     })).toBe(false)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'team_leader',
+      currentRole: 'team_leader',
+    })).toBe(true)
+    expect(canAssignRole({
+      actorRoles: ['team_leader'],
+      nextRole: 'admin',
+      currentRole: 'admin',
+    })).toBe(true)
     expect(canAssignRole({
       actorRoles: ['team_leader'],
       nextRole: 'member',

@@ -51,9 +51,10 @@ export function canEditProfileField(input: {
 
 /**
  * Who may assign which role. Matches admin account tools for privilege:
+ * - Leaving the current role unchanged is always allowed (keeps the select/default stable).
  * - Admins may assign any role.
- * - Team leaders may assign member / reviewer / document_owner (not admin or team_leader),
- *   and may not change an admin's role.
+ * - Team leaders may change a non-admin to member / reviewer / document_owner
+ *   (not admin or team_leader), and may not demote an admin.
  * - Everyone else may only leave the current role unchanged (no self-escalation).
  */
 export function canAssignRole(input: {
@@ -61,10 +62,11 @@ export function canAssignRole(input: {
   nextRole: AppRole
   currentRole: AppRole
 }): boolean {
+  if (input.nextRole === input.currentRole) return true
   if (input.actorRoles.includes('admin')) return true
   if (input.currentRole === 'admin') return false
   if (input.actorRoles.includes('team_leader')) {
     return input.nextRole === 'member' || input.nextRole === 'reviewer' || input.nextRole === 'document_owner'
   }
-  return input.nextRole === input.currentRole
+  return false
 }
