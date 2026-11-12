@@ -1,10 +1,14 @@
 import { notFound } from 'next/navigation'
-import { canEditProfileField } from '@/lib/auth/profile'
+import { primaryRole } from '@/lib/auth/permissions'
+import { canAssignRole, canEditProfileField } from '@/lib/auth/profile'
 import { requireSession } from '@/lib/auth/session'
+import { asRole } from '@/lib/data/rows'
 import { loadDirectory } from '@/lib/data/load'
+import { getSql } from '@/lib/db'
 import { ProfileEditor } from '@/components/profile-editor'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState, PageHeader, Surface, SurfaceBody, SurfaceHeader } from '@/components/layout'
+import { ROLE_CODES, type AppRole } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +18,24 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
   const people = await loadDirectory(session)
   const person = people.find((item) => item.id === id)
   if (!person) notFound()
+
+  const sql = getSql()
+  const [roleRows, projectOptionRows] = sql
+    ? await Promise.all([
+        sql`
+          select r.code from public.user_roles ur
+          join public.roles r on r.id = ur.role_id
+          where ur.user_id = ${person.id}::uuid
+        `,
+        sql`select name from public.projects order by name`,
+      ])
+    : [[], []]
+
+  const roleCodes = roleRows
+    .map((row) => asRole(row.code))
+    .filter((role): role is AppRole => Boolean(role))
+  const role = primaryRole(roleCodes)
+  const projectOptions = projectOptionRows.map((row) => String(row.name))
 
   // Directory is already scoped to the actor's team when teamId is set.
   const sameTeam = Boolean(session.teamId) || session.roles.includes('admin')
@@ -28,8 +50,19 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
     email: canEditProfileField({ ...acl, field: 'email' }),
     contact: canEditProfileField({ ...acl, field: 'contact' }),
     skills: canEditProfileField({ ...acl, field: 'skills' }),
+    role: canEditProfileField({ ...acl, field: 'role' }),
+    projects: canEditProfileField({ ...acl, field: 'projects' }),
   }
-  const canEditAny = editable.fullName || editable.email || editable.contact || editable.skills
+  const canEditAny =
+    editable.fullName ||
+    editable.email ||
+    editable.contact ||
+    editable.skills ||
+    editable.role ||
+    editable.projects
+  const assignableRoles = ROLE_CODES.filter(
+    (code) => code === role || canAssignRole({ actorRoles: session.roles, nextRole: code }),
+  )
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -86,10 +119,12 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
             email: person.email,
             contact: person.contact,
             skills: person.skills.join(', '),
-            roles: person.roles.join(', '),
-            projects: person.projects.join(', '),
+            role,
+            projects: person.projects,
           }}
           editable={editable}
+          projectOptions={projectOptions}
+          assignableRoles={assignableRoles}
         />
       ) : (
         <EmptyState title="You can view this profile, but you cannot edit these fields." />

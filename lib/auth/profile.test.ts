@@ -1,95 +1,70 @@
 import { describe, expect, it } from 'vitest'
-import { canEditProfileField, DIRECTORY_FIELDS, MEMBER_EDITABLE_FIELDS } from '@/lib/auth/profile'
+import {
+  canAssignRole,
+  canEditProfileField,
+  DIRECTORY_FIELDS,
+  MEMBER_EDITABLE_FIELDS,
+} from '@/lib/auth/profile'
 
 describe('profile fields', () => {
-  it('shows directory fields and lets a member edit every profile column except id-derived role/projects', () => {
+  it('lets a member edit every directory field except id (role and projects included)', () => {
     expect(DIRECTORY_FIELDS).toEqual(['fullName', 'role', 'projects', 'email', 'contact', 'skills'])
-    expect(MEMBER_EDITABLE_FIELDS).toEqual(['fullName', 'email', 'contact', 'skills'])
+    expect(MEMBER_EDITABLE_FIELDS).toEqual(['fullName', 'role', 'projects', 'email', 'contact', 'skills'])
+    for (const field of MEMBER_EDITABLE_FIELDS) {
+      expect(canEditProfileField({
+        actorId: 'm',
+        actorRoles: ['member'],
+        targetId: 'm',
+        field,
+        sameTeam: true,
+      })).toBe(true)
+    }
     expect(canEditProfileField({
       actorId: 'm',
       actorRoles: ['member'],
-      targetId: 'm',
-      field: 'contact',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'm',
-      actorRoles: ['member'],
-      targetId: 'm',
-      field: 'fullName',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'm',
-      actorRoles: ['member'],
-      targetId: 'm',
-      field: 'email',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'm',
-      actorRoles: ['member'],
-      targetId: 'm',
+      targetId: 'other',
       field: 'skills',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'm',
-      actorRoles: ['member'],
-      targetId: 'm',
-      field: 'role',
       sameTeam: true,
     })).toBe(false)
     expect(canEditProfileField({
       actorId: 'm',
       actorRoles: ['member'],
       targetId: 'other',
-      field: 'skills',
+      field: 'role',
       sameTeam: true,
     })).toBe(false)
   })
 
-  it('lets a team leader rename a teammate and keeps role changes on the admin account tools', () => {
-    expect(canEditProfileField({
-      actorId: 'leader',
-      actorRoles: ['team_leader'],
-      targetId: 'm',
-      field: 'fullName',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'leader',
-      actorRoles: ['team_leader'],
-      targetId: 'leader',
-      field: 'fullName',
-      sameTeam: true,
-    })).toBe(true)
-    expect(canEditProfileField({
-      actorId: 'leader',
-      actorRoles: ['team_leader'],
-      targetId: 'm',
-      field: 'email',
-      sameTeam: true,
-    })).toBe(false)
+  it('lets a team leader edit teammate role and projects, and keeps admin-role assignment gated', () => {
     expect(canEditProfileField({
       actorId: 'leader',
       actorRoles: ['team_leader'],
       targetId: 'm',
       field: 'role',
       sameTeam: true,
-    })).toBe(false)
-    expect(canEditProfileField({
-      actorId: 'admin',
-      actorRoles: ['admin'],
-      targetId: 'admin',
-      field: 'fullName',
-      sameTeam: false,
     })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'leader',
+      actorRoles: ['team_leader'],
+      targetId: 'm',
+      field: 'projects',
+      sameTeam: true,
+    })).toBe(true)
+    expect(canEditProfileField({
+      actorId: 'leader',
+      actorRoles: ['team_leader'],
+      targetId: 'm',
+      field: 'email',
+      sameTeam: true,
+    })).toBe(false)
+    expect(canAssignRole({ actorRoles: ['team_leader'], nextRole: 'admin' })).toBe(false)
+    expect(canAssignRole({ actorRoles: ['team_leader'], nextRole: 'member' })).toBe(true)
+    expect(canAssignRole({ actorRoles: ['admin'], nextRole: 'admin' })).toBe(true)
     expect(canEditProfileField({
       actorId: 'admin',
       actorRoles: ['admin'],
       targetId: 'other',
-      field: 'email',
+      field: 'role',
       sameTeam: false,
     })).toBe(true)
   })

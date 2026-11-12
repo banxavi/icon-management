@@ -4,11 +4,10 @@ import type { AppRole } from '@/lib/types'
 export const DIRECTORY_FIELDS = ['fullName', 'role', 'projects', 'email', 'contact', 'skills'] as const
 
 /**
- * Profile columns an employee may update on their own record.
+ * Profile fields an employee may update on their record.
  * `id` is intentionally excluded and must stay read-only / non-mutable.
- * Role and projects stay on the admin account tools (join tables, not profile columns).
  */
-export const MEMBER_EDITABLE_FIELDS = ['fullName', 'email', 'contact', 'skills'] as const
+export const MEMBER_EDITABLE_FIELDS = ['fullName', 'role', 'projects', 'email', 'contact', 'skills'] as const
 
 export type ProfileField = (typeof DIRECTORY_FIELDS)[number]
 
@@ -23,7 +22,7 @@ export function canEditProfileField(input: {
   const isAdmin = input.actorRoles.includes('admin')
   const isTeamLeader = input.actorRoles.includes('team_leader') && input.sameTeam
 
-  if (input.field === 'contact' || input.field === 'skills') {
+  if (input.field === 'contact' || input.field === 'skills' || input.field === 'projects') {
     if (isSelf) return true
     if (isAdmin) return true
     return isTeamLeader
@@ -32,7 +31,7 @@ export function canEditProfileField(input: {
   if (input.field === 'fullName') {
     if (isSelf) return true
     if (isAdmin) return true
-    return isTeamLeader && !isSelf
+    return isTeamLeader
   }
 
   if (input.field === 'email') {
@@ -40,6 +39,21 @@ export function canEditProfileField(input: {
     return isAdmin
   }
 
-  // role / projects are assigned through admin tools, not the profile form
+  // Role is sensitive: self, admin, or team leader (teammate). Assigning admin is gated separately.
+  if (input.field === 'role') {
+    if (isSelf) return true
+    if (isAdmin) return true
+    return isTeamLeader
+  }
+
   return false
+}
+
+/** Only admins may grant the admin role (matches admin account tools). */
+export function canAssignRole(input: {
+  actorRoles: AppRole[]
+  nextRole: AppRole
+}): boolean {
+  if (input.nextRole === 'admin') return input.actorRoles.includes('admin')
+  return true
 }
